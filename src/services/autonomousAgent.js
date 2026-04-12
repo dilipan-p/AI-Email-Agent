@@ -18,7 +18,7 @@ const { query }         = require('../config/database');
 const { fallbackAnalysis } = require('./fallbackAnalysis');
 const { generateReply } = require('./replyEngine');
 const { detectSpam }    = require('./spamDetector');
-const { extractMeetingDetails, buildMeetingReply, createCalendarEvent } = require('./meetingScheduler');
+const { extractMeetingDetails, buildMeetingReply, buildBusyReply, checkCalendarConflict, createCalendarEvent, generateSlots } = require('./meetingScheduler');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -212,14 +212,49 @@ async function processEmail(gmail, email) {
   if (analysis.intent === 'meeting_request') {
     const meetingDetails = extractMeetingDetails(email);
     const firstName = (email.senderName || email.sender.split('@')[0]).split(/\s+/)[0];
-    replyText    = buildMeetingReply(meetingDetails, firstName);
     replySubject = email.subject?.startsWith('Re:') ? email.subject : `Re: ${email.subject}`;
     replyType    = 'meeting_request';
 
-    // Optionally create calendar event for high-confidence known contacts
-    if (analysis.confidence >= AUTO_REPLY_CONFIDENCE_MIN && contactInfo) {
-      const slots = require('./meetingScheduler').generateSlots(1, meetingDetails.durationMinutes);
-      await createCalendarEvent(meetingDetails, email.sender, slots[0]);
+    // ── Conflict check ───────────────────────────────────────────────────────
+    let conflictResult = { hasConflict: false };
+
+    if (meetingDetails.exactDate || meetingDetails.proposedTimes.length > 0) {
+      // Determine the requested start/end time for conflict check
+      let checkStart, checkEnd;
+      if (meetingDetails.exactDate) {
+        const d = new Date(meetingDetails.exactDate);
+        const timeHint = (meetingDetails.proposedTimes || []).find((t) => /am|pm/i.test(t));
+        if (timeHint) {
+          const parsed = new Date(`${d.toDateString()} ${timeHint}`);
+          if (!isNaN(parsed.getTime())) {
+            checkStart = parsed.toISOString();
+            checkEnd   = new Date(parsed.getTime() + meetingDetails.durationMinutes * 60000).toISOString();
+          }
+        } else {
+          d.setHours(10, 0, 0, 0);
+          checkStart = d.toISOString();
+          checkEnd   = new Date(d.getTime() + meetingDetails.durationMinutes * 60000).toISOString();
+        }
+      }
+
+      if (checkStart) {
+        conflictResult = await checkCalendarConflict(checkStart, checkEnd);
+      }
+    }
+
+    if (conflictResult.hasConflict) {
+      // Slot is taken — apologise and offer next free slots
+      logger.info(`Calendar conflict detected for ${email.sender} — sending busy reply`, logCtx);
+      replyText = buildBusyReply(meetingDetails, firstName, conflictResult.conflictEvent, conflictResult.nextSlots);
+      replyType = 'meeting_conflict';
+    } else {
+      // Slot is free — confirm and create calendar event
+      replyText = buildMeetingReply(meetingDetails, firstName);
+
+      if (analysis.confidence >= AUTO_REPLY_CONFIDENCE_MIN && contactInfo) {
+        const slots = generateSlots(1, meetingDetails.durationMinutes);
+        await createCalendarEvent(meetingDetails, email.sender, slots[0]);
+      }
     }
   } else {
     // ── 5. Standard reply generation ────────────────────────────────────────

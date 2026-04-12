@@ -208,6 +208,192 @@ function buildMeetingReply(details, senderFirstName) {
   );
 }
 
+// ─── Conflict checker ────────────────────────────────────────────────────────
+
+/**
+ * Get Google Calendar auth client — shared helper.
+ */
+function getCalendarClient() {
+  const { google } = require('googleapis');
+  const oauth2 = new google.auth.OAuth2(
+    process.env.GMAIL_CLIENT_ID,
+    process.env.GMAIL_CLIENT_SECRET,
+    process.env.GMAIL_REDIRECT_URI,
+  );
+  oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  return google.calendar({ version: 'v3', auth: oauth2 });
+}
+
+/**
+ * checkCalendarConflict — checks if there is already an event at the requested time.
+ *
+ * @param {string} startISO — ISO start datetime
+ * @param {string} endISO   — ISO end datetime
+ * @returns {{ hasConflict: boolean, conflictEvent: object|null, nextSlots: Array }}
+ */
+async function checkCalendarConflict(startISO, endISO) {
+  if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_REFRESH_TOKEN) {
+    return { hasConflict: false, conflictEvent: null, nextSlots: [] };
+  }
+
+  try {
+    const calendar = getCalendarClient();
+
+    // Query calendar for events in the requested window
+    const res = await calendar.events.list({
+      calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
+      timeMin: startISO,
+      timeMax: endISO,
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+
+    const events = res.data.items || [];
+    // Filter out declined events and all-day events
+    const conflicts = events.filter((e) => {
+      if (!e.start?.dateTime) return false; // skip all-day events
+      const selfStatus = (e.attendees || []).find((a) => a.self)?.responseStatus;
+      return selfStatus !== 'declined';
+    });
+
+    if (conflicts.length === 0) {
+      return { hasConflict: false, conflictEvent: null, nextSlots: [] };
+    }
+
+    // Find next 3 free slots after the conflict
+    const nextSlots = await findNextFreeSlots(calendar, new Date(endISO), 3, 60);
+
+    logger.info(`Calendar conflict found: ${conflicts[0].summary} at ${startISO}`);
+    return {
+      hasConflict: true,
+      conflictEvent: conflicts[0],
+      nextSlots,
+    };
+  } catch (err) {
+    logger.warn('Calendar conflict check failed', { error: err.message });
+    return { hasConflict: false, conflictEvent: null, nextSlots: [] };
+  }
+}
+
+/**
+ * findNextFreeSlots — find N free working-hours slots after a given time.
+ */
+async function findNextFreeSlots(calendar, after, count = 3, durationMinutes = 60) {
+  const slots = [];
+  let cursor  = new Date(after);
+  cursor.setMinutes(0, 0, 0);
+
+  const WORK_START = 9;
+  const WORK_END   = 17;
+  const SKIP_DAYS  = [0, 6];
+  const attempts   = 0;
+  let   maxDays    = 7; // search up to 7 days ahead
+
+  while (slots.length < count && maxDays > 0) {
+    // Skip weekends
+    if (SKIP_DAYS.includes(cursor.getDay())) {
+      cursor.setDate(cursor.getDate() + 1);
+      cursor.setHours(WORK_START, 0, 0, 0);
+      maxDays--;
+      continue;
+    }
+
+    // Try hours 9, 10, 11, 14, 15, 16
+    const tryHours = [9, 10, 11, 14, 15, 16];
+    for (const h of tryHours) {
+      if (slots.length >= count) break;
+      if (h < cursor.getHours() && cursor.toDateString() === new Date().toDateString()) continue;
+
+      const start = new Date(cursor);
+      start.setHours(h, 0, 0, 0);
+      if (start <= new Date()) continue; // skip past times
+
+      const end = new Date(start.getTime() + durationMinutes * 60000);
+
+      try {
+        const res = await calendar.events.list({
+          calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
+          timeMin: start.toISOString(),
+          timeMax: end.toISOString(),
+          singleEvents: true,
+        });
+        const busy = (res.data.items || []).filter((e) => e.start?.dateTime);
+        if (busy.length === 0) {
+          slots.push({
+            start: start.toISOString(),
+            end:   end.toISOString(),
+            label: formatSlot(start, end),
+          });
+        }
+      } catch {
+        // If check fails, include the slot anyway
+        slots.push({
+          start: start.toISOString(),
+          end:   end.toISOString(),
+          label: formatSlot(start, end),
+        });
+      }
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+    cursor.setHours(WORK_START, 0, 0, 0);
+    maxDays--;
+  }
+
+  return slots;
+}
+
+/**
+ * buildBusyReply — reply telling sender the slot is taken + offer next free slots.
+ */
+function buildBusyReply(details, senderFirstName, conflictEvent, nextSlots) {
+  const name        = senderFirstName || 'there';
+  const requestedAt = details.exactDate
+    ? details.exactDate.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' })
+    : (details.proposedTimes[0] || 'that time');
+
+  const apology =
+    `Hi ${name},
+
+` +
+    `Thank you for reaching out! I apologise, but I already have another commitment scheduled on ${requestedAt} ` +
+    `and I am unable to meet at that time.
+
+`;
+
+  if (nextSlots.length > 0) {
+    const slotList = nextSlots.map((s, i) => `  ${i + 1}. ${s.label}`).join('\n');
+    return (
+      apology +
+      `Here are my next available slots:
+
+` +
+      `${slotList}
+
+` +
+      `Please let me know which one works best for you and I will send a calendar invite right away.
+
+` +
+      `Sorry for any inconvenience and looking forward to connecting!
+
+` +
+      `Best regards,`
+    );
+  }
+
+  return (
+    apology +
+    `Could you please suggest another date or time that works for you? ` +
+    `I will do my best to accommodate.
+
+` +
+    `Sorry for any inconvenience!
+
+` +
+    `Best regards,`
+  );
+}
+
 // ─── Google Calendar integration (optional) ───────────────────────────────────
 
 /**
@@ -277,4 +463,4 @@ async function createCalendarEvent(details, attendeeEmail, slot) {
   }
 }
 
-module.exports = { extractMeetingDetails, generateSlots, buildMeetingReply, createCalendarEvent };
+module.exports = { extractMeetingDetails, generateSlots, buildMeetingReply, buildBusyReply, checkCalendarConflict, createCalendarEvent };
