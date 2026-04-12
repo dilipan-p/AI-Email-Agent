@@ -101,41 +101,86 @@ function extractMeetingDetails(email) {
   // Proposed time — extract specific dates, day names, and times
   const proposedTimes = [];
   let exactDate = null;
+  let exactTime = null; // { hours, mins }
 
-  // Match "10 april 2026", "april 10 2026", "10/04/2026", "2026-04-10"
-  const fullDatePatterns = [
-    /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{4})\b/gi,
-    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})[,\s]+(\d{4})\b/gi,
-    /\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/g,
-  ];
+  // ── Helper: parse time string like "6pm", "10:30am" → { hours, mins } ──
+  function parseTimeStr(t) {
+    if (!t) return null;
+    const clean = t.trim().replace(/(\d)([ap]m)/i, '$1 $2').toUpperCase();
+    const match = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/);
+    if (!match) return null;
+    let hours = parseInt(match[1]);
+    const mins = parseInt(match[2] || '0');
+    const ampm = match[3];
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return { hours, mins };
+  }
 
-  for (const re of fullDatePatterns) {
-    const m = combined.match(re);
-    if (m && m[0]) {
-      const parsed = new Date(m[0]);
-      if (!isNaN(parsed.getTime())) {
-        exactDate = parsed;
-        proposedTimes.push(m[0].trim());
-        break;
+  // ── Helper: parse DD/MM/YYYY or DD-MM-YYYY correctly ──
+  function parseDMY(str) {
+    const m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (!m) return null;
+    const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // ── Helper: parse "today" / "tomorrow" relative dates ──
+  function parseRelative(word) {
+    const now = new Date();
+    if (/today/i.test(word)) return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (/tomorrow/i.test(word)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    return null;
+  }
+
+  // 1. Try DD/MM/YYYY or DD-MM-YYYY (most common in India)
+  const dmyMatch = combined.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/);
+  if (dmyMatch) {
+    const d = parseDMY(dmyMatch[0]);
+    if (d) { exactDate = d; proposedTimes.push(dmyMatch[0]); }
+  }
+
+  // 2. Try "10 april 2026" or "april 10 2026"
+  if (!exactDate) {
+    const monthNames = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+    const patterns = [
+      new RegExp(`\\b(\\d{1,2})\\s+(${monthNames})\\s+(\\d{4})\\b`, 'gi'),
+      new RegExp(`\\b(${monthNames})\\s+(\\d{1,2})[,\\s]+(\\d{4})\\b`, 'gi'),
+    ];
+    for (const re of patterns) {
+      const m = combined.match(re);
+      if (m && m[0]) {
+        const d = new Date(m[0]);
+        if (!isNaN(d.getTime())) {
+          exactDate = d;
+          proposedTimes.push(m[0].trim());
+          break;
+        }
       }
     }
   }
 
-  // Day name patterns (only if no exact date found)
+  // 3. Try relative: "today", "tomorrow"
   if (!exactDate) {
-    const dayPatterns = [
-      /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi,
-      /\b(tomorrow|today|next week|this week)\b/gi,
-    ];
-    for (const re of dayPatterns) {
-      const matches = combined.match(re) || [];
-      proposedTimes.push(...matches.map((m) => m.trim()));
+    const relMatch = combined.match(/\b(today|tomorrow)\b/i);
+    if (relMatch) {
+      exactDate = parseRelative(relMatch[0]);
+      if (exactDate) proposedTimes.push(relMatch[0]);
     }
   }
 
-  // Time of day
-  const timeMatch = combined.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/gi);
-  if (timeMatch) proposedTimes.push(...timeMatch.map((m) => m.trim()));
+  // 4. Day names (Friday, Monday etc.) — only if no exact date
+  if (!exactDate) {
+    const dayMatch = combined.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi);
+    if (dayMatch) proposedTimes.push(...dayMatch.map((m) => m.trim()));
+  }
+
+  // 5. Extract time — "6pm", "10:30am", "3 PM"
+  const timeMatch = combined.match(/\b(\d{1,2}(?::\d{2})?\s*[ap]m)\b/gi);
+  if (timeMatch) {
+    proposedTimes.push(...timeMatch.map((m) => m.trim()));
+    exactTime = parseTimeStr(timeMatch[0]); // use first time found
+  }
 
   // Purpose hint
   let purpose = 'a meeting';
@@ -152,6 +197,7 @@ function extractMeetingDetails(email) {
     purpose,
     proposedTimes: [...new Set(proposedTimes)],
     exactDate,
+    exactTime,
     isFlexible: proposedTimes.length === 0 && !exactDate,
   };
 }
@@ -164,14 +210,20 @@ function extractMeetingDetails(email) {
 function buildMeetingReply(details, senderFirstName) {
   const name = senderFirstName || 'there';
 
-  // Case 1: Exact date found (e.g. "Friday 10 April 2026")
+  // Case 1: Exact date found (e.g. "13/4/2026", "Friday 10 April 2026")
   if (details.exactDate) {
-    const dateLabel = details.exactDate.toLocaleDateString('en-US', {
+    const dateLabel = details.exactDate.toLocaleDateString('en-IN', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      timeZone: 'Asia/Kolkata',
     });
-    // Find the time if mentioned
-    const timeHint = details.proposedTimes.find((t) => /am|pm/i.test(t));
-    const timeLabel = timeHint ? ` at ${timeHint}` : '';
+    let timeLabel = '';
+    if (details.exactTime) {
+      const h = details.exactTime.hours;
+      const m = details.exactTime.mins;
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12  = h % 12 || 12;
+      timeLabel  = ` at ${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+    }
     return (
       `Hi ${name},\n\n` +
       `Thank you for reaching out! I would be happy to connect for ${details.purpose} via ${details.platform}.\n\n` +
@@ -417,24 +469,30 @@ async function createCalendarEvent(details, attendeeEmail, slot) {
     oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
 
     const calendar = google.calendar({ version: 'v3', auth: oauth2 });
-    // Use the sender's requested date if available, else use generated slot
+    // Use the sender's requested date/time if available, else use generated slot
     let startTime = slot.start;
     let endTime   = slot.end;
+
     if (details.exactDate) {
       const d = new Date(details.exactDate);
-      // Check if a time was mentioned (e.g. "10am")
-      const timeHint = (details.proposedTimes || []).find((t) => /am|pm/i.test(t));
-      if (timeHint) {
-        const parsed = new Date(`${d.toDateString()} ${timeHint}`);
-        if (!isNaN(parsed.getTime())) {
-          startTime = parsed.toISOString();
-          endTime   = new Date(parsed.getTime() + details.durationMinutes * 60000).toISOString();
-        }
+
+      if (details.exactTime) {
+        // Use parsed time directly — set hours/mins in local date
+        d.setHours(details.exactTime.hours, details.exactTime.mins, 0, 0);
       } else {
-        d.setHours(10, 0, 0, 0); // Default to 10am on their requested date
-        startTime = d.toISOString();
-        endTime   = new Date(d.getTime() + details.durationMinutes * 60000).toISOString();
+        d.setHours(10, 0, 0, 0); // Default 10am if no time mentioned
       }
+
+      // Build ISO string with IST offset (+05:30) to avoid UTC shift issues
+      const pad = (n) => String(n).padStart(2, '0');
+      const localISO = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00+05:30`;
+      const endDate  = new Date(d.getTime() + details.durationMinutes * 60000);
+      const endISO   = `${endDate.getFullYear()}-${pad(endDate.getMonth()+1)}-${pad(endDate.getDate())}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}:00+05:30`;
+
+      startTime = localISO;
+      endTime   = endISO;
+
+      logger.info(`Calendar event time: ${startTime} → ${endTime}`);
     }
 
     const event = {

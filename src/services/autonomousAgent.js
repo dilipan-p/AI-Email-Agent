@@ -223,18 +223,18 @@ async function processEmail(gmail, email) {
       let checkStart, checkEnd;
       if (meetingDetails.exactDate) {
         const d = new Date(meetingDetails.exactDate);
-        const timeHint = (meetingDetails.proposedTimes || []).find((t) => /am|pm/i.test(t));
-        if (timeHint) {
-          const parsed = new Date(`${d.toDateString()} ${timeHint}`);
-          if (!isNaN(parsed.getTime())) {
-            checkStart = parsed.toISOString();
-            checkEnd   = new Date(parsed.getTime() + meetingDetails.durationMinutes * 60000).toISOString();
-          }
+        const pad = (n) => String(n).padStart(2, '0');
+
+        if (meetingDetails.exactTime) {
+          d.setHours(meetingDetails.exactTime.hours, meetingDetails.exactTime.mins, 0, 0);
         } else {
           d.setHours(10, 0, 0, 0);
-          checkStart = d.toISOString();
-          checkEnd   = new Date(d.getTime() + meetingDetails.durationMinutes * 60000).toISOString();
         }
+
+        // Use IST offset
+        checkStart = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00+05:30`;
+        const endD = new Date(d.getTime() + meetingDetails.durationMinutes * 60000);
+        checkEnd   = `${endD.getFullYear()}-${pad(endD.getMonth()+1)}-${pad(endD.getDate())}T${pad(endD.getHours())}:${pad(endD.getMinutes())}:00+05:30`;
       }
 
       if (checkStart) {
