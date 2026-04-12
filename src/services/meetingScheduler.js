@@ -98,17 +98,44 @@ function extractMeetingDetails(email) {
   else if (has(combined, 'phone', 'call me'))   platform = 'phone call';
   else if (has(combined, 'in person', 'office', 'come by')) platform = 'in-person meeting';
 
-  // Proposed time — simple regex extraction
-  const timePatterns = [
-    /\b(monday|tuesday|wednesday|thursday|friday)\b/gi,
-    /\b(tomorrow|today|next week|this week)\b/gi,
-    /\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/gi,
-  ];
+  // Proposed time — extract specific dates, day names, and times
   const proposedTimes = [];
-  for (const re of timePatterns) {
-    const matches = combined.match(re) || [];
-    proposedTimes.push(...matches.map((m) => m.trim()));
+  let exactDate = null;
+
+  // Match "10 april 2026", "april 10 2026", "10/04/2026", "2026-04-10"
+  const fullDatePatterns = [
+    /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{4})\b/gi,
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})[,\s]+(\d{4})\b/gi,
+    /\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/g,
+  ];
+
+  for (const re of fullDatePatterns) {
+    const m = combined.match(re);
+    if (m && m[0]) {
+      const parsed = new Date(m[0]);
+      if (!isNaN(parsed.getTime())) {
+        exactDate = parsed;
+        proposedTimes.push(m[0].trim());
+        break;
+      }
+    }
   }
+
+  // Day name patterns (only if no exact date found)
+  if (!exactDate) {
+    const dayPatterns = [
+      /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi,
+      /\b(tomorrow|today|next week|this week)\b/gi,
+    ];
+    for (const re of dayPatterns) {
+      const matches = combined.match(re) || [];
+      proposedTimes.push(...matches.map((m) => m.trim()));
+    }
+  }
+
+  // Time of day
+  const timeMatch = combined.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/gi);
+  if (timeMatch) proposedTimes.push(...timeMatch.map((m) => m.trim()));
 
   // Purpose hint
   let purpose = 'a meeting';
@@ -124,7 +151,8 @@ function extractMeetingDetails(email) {
     platform,
     purpose,
     proposedTimes: [...new Set(proposedTimes)],
-    isFlexible: proposedTimes.length === 0,
+    exactDate,
+    isFlexible: proposedTimes.length === 0 && !exactDate,
   };
 }
 
@@ -134,22 +162,41 @@ function extractMeetingDetails(email) {
  * Build a meeting-reply body with available time slots embedded.
  */
 function buildMeetingReply(details, senderFirstName) {
-  const slots  = generateSlots(3, details.durationMinutes);
-  const name   = senderFirstName || 'there';
+  const name = senderFirstName || 'there';
 
-  if (details.proposedTimes.length > 0) {
-    // Sender already proposed times — confirm one
-    const confirmed = details.proposedTimes[0];
+  // Case 1: Exact date found (e.g. "Friday 10 April 2026")
+  if (details.exactDate) {
+    const dateLabel = details.exactDate.toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+    // Find the time if mentioned
+    const timeHint = details.proposedTimes.find((t) => /am|pm/i.test(t));
+    const timeLabel = timeHint ? ` at ${timeHint}` : '';
     return (
       `Hi ${name},\n\n` +
       `Thank you for reaching out! I would be happy to connect for ${details.purpose} via ${details.platform}.\n\n` +
-      `${confirmed} works for me. I will send a calendar invite shortly.\n\n` +
+      `${dateLabel}${timeLabel} works perfectly for me. I will send a calendar invite shortly.\n\n` +
       `Please let me know if you need to adjust anything.\n\n` +
       `Best regards,`
     );
   }
 
-  // No times proposed — offer slots
+  // Case 2: Day name or relative time proposed (e.g. "Friday", "tomorrow")
+  if (details.proposedTimes.length > 0) {
+    const dayHint  = details.proposedTimes.find((t) => !/am|pm/i.test(t));
+    const timeHint = details.proposedTimes.find((t) => /am|pm/i.test(t));
+    const when     = [dayHint, timeHint].filter(Boolean).join(' at ');
+    return (
+      `Hi ${name},\n\n` +
+      `Thank you for reaching out! I would be happy to connect for ${details.purpose} via ${details.platform}.\n\n` +
+      `${when} works for me. I will send a calendar invite shortly.\n\n` +
+      `Please let me know if you need to adjust anything.\n\n` +
+      `Best regards,`
+    );
+  }
+
+  // Case 3: No time proposed — offer 3 slots
+  const slots    = generateSlots(3, details.durationMinutes);
   const slotList = slots.map((s, i) => `  ${i + 1}. ${s.label}`).join('\n');
   return (
     `Hi ${name},\n\n` +
@@ -184,11 +231,31 @@ async function createCalendarEvent(details, attendeeEmail, slot) {
     oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
 
     const calendar = google.calendar({ version: 'v3', auth: oauth2 });
+    // Use the sender's requested date if available, else use generated slot
+    let startTime = slot.start;
+    let endTime   = slot.end;
+    if (details.exactDate) {
+      const d = new Date(details.exactDate);
+      // Check if a time was mentioned (e.g. "10am")
+      const timeHint = (details.proposedTimes || []).find((t) => /am|pm/i.test(t));
+      if (timeHint) {
+        const parsed = new Date(`${d.toDateString()} ${timeHint}`);
+        if (!isNaN(parsed.getTime())) {
+          startTime = parsed.toISOString();
+          endTime   = new Date(parsed.getTime() + details.durationMinutes * 60000).toISOString();
+        }
+      } else {
+        d.setHours(10, 0, 0, 0); // Default to 10am on their requested date
+        startTime = d.toISOString();
+        endTime   = new Date(d.getTime() + details.durationMinutes * 60000).toISOString();
+      }
+    }
+
     const event = {
       summary: details.purpose,
       description: `Scheduled by AI Email Agent`,
-      start: { dateTime: slot.start, timeZone: 'Asia/Kolkata' },
-      end:   { dateTime: slot.end,   timeZone: 'Asia/Kolkata' },
+      start: { dateTime: startTime, timeZone: 'Asia/Kolkata' },
+      end:   { dateTime: endTime,   timeZone: 'Asia/Kolkata' },
       attendees: [{ email: attendeeEmail }],
       conferenceData: details.platform === 'Google Meet' ? {
         createRequest: { requestId: `ai-agent-${Date.now()}` },
