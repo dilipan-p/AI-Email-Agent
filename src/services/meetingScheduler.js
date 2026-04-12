@@ -474,25 +474,29 @@ async function createCalendarEvent(details, attendeeEmail, slot) {
     let endTime   = slot.end;
 
     if (details.exactDate) {
-      const d = new Date(details.exactDate);
+      const d      = new Date(details.exactDate);
+      const pad    = (n) => String(n).padStart(2, '0');
 
-      if (details.exactTime) {
-        // Use parsed time directly — set hours/mins in local date
-        d.setHours(details.exactTime.hours, details.exactTime.mins, 0, 0);
-      } else {
-        d.setHours(10, 0, 0, 0); // Default 10am if no time mentioned
-      }
+      // Use exactTime hours/mins DIRECTLY — never pass through d.getHours()
+      // because the server may be in UTC and corrupt the value.
+      // We always build the IST string manually from the user's stated time.
+      const istHours = details.exactTime ? details.exactTime.hours : 10;
+      const istMins  = details.exactTime ? details.exactTime.mins  : 0;
 
-      // Build ISO string with IST offset (+05:30) to avoid UTC shift issues
-      const pad = (n) => String(n).padStart(2, '0');
-      const localISO = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00+05:30`;
-      const endDate  = new Date(d.getTime() + details.durationMinutes * 60000);
-      const endISO   = `${endDate.getFullYear()}-${pad(endDate.getMonth()+1)}-${pad(endDate.getDate())}T${pad(endDate.getHours())}:${pad(endDate.getMinutes())}:00+05:30`;
+      const year  = d.getFullYear();
+      const month = pad(d.getMonth() + 1);
+      const day   = pad(d.getDate());
 
-      startTime = localISO;
-      endTime   = endISO;
+      // End time — add duration to the IST hours directly
+      const totalMins    = istHours * 60 + istMins + details.durationMinutes;
+      const endHours     = Math.floor(totalMins / 60) % 24;
+      const endMins      = totalMins % 60;
 
-      logger.info(`Calendar event time: ${startTime} → ${endTime}`);
+      // Build ISO with explicit +05:30 — Google Calendar honours this offset
+      startTime = `${year}-${month}-${day}T${pad(istHours)}:${pad(istMins)}:00+05:30`;
+      endTime   = `${year}-${month}-${day}T${pad(endHours)}:${pad(endMins)}:00+05:30`;
+
+      logger.info(`Calendar event IST: ${startTime} → ${endTime}`);
     }
 
     const event = {

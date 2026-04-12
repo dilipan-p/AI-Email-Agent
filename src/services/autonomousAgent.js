@@ -222,19 +222,21 @@ async function processEmail(gmail, email) {
       // Determine the requested start/end time for conflict check
       let checkStart, checkEnd;
       if (meetingDetails.exactDate) {
-        const d = new Date(meetingDetails.exactDate);
-        const pad = (n) => String(n).padStart(2, '0');
+        const d      = new Date(meetingDetails.exactDate);
+        const pad    = (n) => String(n).padStart(2, '0');
+        const year   = d.getFullYear();
+        const month  = pad(d.getMonth() + 1);
+        const day    = pad(d.getDate());
 
-        if (meetingDetails.exactTime) {
-          d.setHours(meetingDetails.exactTime.hours, meetingDetails.exactTime.mins, 0, 0);
-        } else {
-          d.setHours(10, 0, 0, 0);
-        }
+        // Use user's stated time directly — avoid server UTC corruption
+        const istHours = meetingDetails.exactTime ? meetingDetails.exactTime.hours : 10;
+        const istMins  = meetingDetails.exactTime ? meetingDetails.exactTime.mins  : 0;
+        const totalMins = istHours * 60 + istMins + meetingDetails.durationMinutes;
+        const endHours  = Math.floor(totalMins / 60) % 24;
+        const endMins   = totalMins % 60;
 
-        // Use IST offset
-        checkStart = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00+05:30`;
-        const endD = new Date(d.getTime() + meetingDetails.durationMinutes * 60000);
-        checkEnd   = `${endD.getFullYear()}-${pad(endD.getMonth()+1)}-${pad(endD.getDate())}T${pad(endD.getHours())}:${pad(endD.getMinutes())}:00+05:30`;
+        checkStart = `${year}-${month}-${day}T${pad(istHours)}:${pad(istMins)}:00+05:30`;
+        checkEnd   = `${year}-${month}-${day}T${pad(endHours)}:${pad(endMins)}:00+05:30`;
       }
 
       if (checkStart) {
