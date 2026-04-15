@@ -181,6 +181,18 @@ async function processEmail(gmail, email) {
     return { decision: 'SKIPPED' };
   }
 
+  // ── 0b. No-reply / automated sender check ────────────────────────────────
+  const NO_REPLY_PATTERNS = [
+    /no.?reply/i, /noreply/i, /donotreply/i, /do.not.reply/i,
+    /mailer.daemon/i, /postmaster/i, /bounce/i, /automailer/i,
+    /notifications?@/i, /alerts?@/i, /automated?@/i,
+  ];
+  if (NO_REPLY_PATTERNS.some((re) => re.test(email.sender))) {
+    logger.info(`No-reply sender detected — skipping: ${email.sender}`, logCtx);
+    await markEmailProcessed(email.messageId, 'IGNORE');
+    return { decision: 'IGNORE', reason: 'no-reply sender' };
+  }
+
   // ── 1. Spam check (fast path) ────────────────────────────────────────────
   const spam = detectSpam(email);
   if (spam.action === 'DELETE' && spam.confidence >= DELETION_THRESHOLD) {
@@ -296,6 +308,14 @@ async function processEmail(gmail, email) {
     try {
       await sendGmailReply(gmail, email, replyText, replySubject);
       await markEmailProcessed(email.messageId, 'AUTO_REPLY');
+      // Log to audit trail
+      try {
+        await query(
+          `INSERT INTO audit_log (event_type, entity_type, details)
+           VALUES ('auto_reply_sent', 'email', $1)`,
+          [JSON.stringify({ sender: email.sender, subject: email.subject, intent: analysis.intent, confidence: analysis.confidence })]
+        );
+      } catch { /* non-critical */ }
       logger.info(`AUTO_REPLY sent | intent=${analysis.intent} conf=${analysis.confidence}`, logCtx);
       return { decision: 'AUTO_REPLY', intent: analysis.intent, confidence: analysis.confidence, replyType };
     } catch (err) {
@@ -314,7 +334,14 @@ async function processEmail(gmail, email) {
 
   await saveToApprovalQueue(email, analysis, replyText, replySubject, queueReason);
   await markEmailProcessed(email.messageId, 'NEEDS_APPROVAL');
-
+  // Log to audit trail
+  try {
+    await query(
+      `INSERT INTO audit_log (event_type, entity_type, details)
+       VALUES ('queued_for_approval', 'email', $1)`,
+      [JSON.stringify({ sender: email.sender, subject: email.subject, reason: queueReason })]
+    );
+  } catch { /* non-critical */ }
   logger.info(`NEEDS_APPROVAL — queued for review | reason: ${queueReason}`, logCtx);
   return { decision: 'NEEDS_APPROVAL', intent: analysis.intent, confidence: analysis.confidence, replyType, reason: queueReason };
 }

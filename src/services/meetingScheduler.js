@@ -504,7 +504,8 @@ async function createCalendarEvent(details, attendeeEmail, slot) {
       description: `Scheduled by AI Email Agent`,
       start: { dateTime: startTime, timeZone: 'Asia/Kolkata' },
       end:   { dateTime: endTime,   timeZone: 'Asia/Kolkata' },
-      attendees: [{ email: attendeeEmail }],
+      // No attendees — do NOT send calendar invitation to sender
+      // The AI reply email already confirms the meeting
       conferenceData: details.platform === 'Google Meet' ? {
         createRequest: { requestId: `ai-agent-${Date.now()}` },
       } : undefined,
@@ -514,7 +515,8 @@ async function createCalendarEvent(details, attendeeEmail, slot) {
       calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
       resource: event,
       conferenceDataVersion: details.platform === 'Google Meet' ? 1 : 0,
-      sendNotifications: true,
+      sendUpdates: 'none',      // never send Google Calendar invites
+      sendNotifications: false, // never send notifications to anyone
     });
 
     logger.info(`Calendar event created: ${response.data.htmlLink}`);

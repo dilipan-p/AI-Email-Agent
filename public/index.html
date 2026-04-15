@@ -544,9 +544,6 @@
       <span>◎</span> Approvals
       <span class="nav-badge red" id="nav-badge-approvals">—</span>
     </div>
-    <div class="nav-item" onclick="showPage('compose', this)">
-      <span>✏</span> Process Email
-    </div>
 
     <div class="nav-section">Management</div>
     <div class="nav-item" onclick="showPage('cleanup', this)">
@@ -567,14 +564,10 @@
     <!-- ══════════════════════════════ DASHBOARD ══════════════════════════════ -->
     <div id="page-dashboard" class="page active">
       <div class="section-gap">
-        <div class="stats-grid" id="statsGrid">
-          <div class="stat-card purple"><div class="stat-label">Total Emails</div><div class="stat-value" id="st-total">—</div><div class="stat-sub">in database</div></div>
-          <div class="stat-card yellow"><div class="stat-label">Pending</div><div class="stat-value" id="st-pending">—</div><div class="stat-sub">awaiting processing</div></div>
-          <div class="stat-card green"><div class="stat-label">Replied</div><div class="stat-value" id="st-replied">—</div><div class="stat-sub">sent successfully</div></div>
+        <div class="stats-grid" id="statsGrid" style="grid-template-columns:repeat(3,1fr);">
           <div class="stat-card green"><div class="stat-label">Auto Replied</div><div class="stat-value" id="st-autoreplied">—</div><div class="stat-sub">sent by agent</div></div>
-          <div class="stat-card orange"><div class="stat-label">Approvals</div><div class="stat-value" id="st-approvals">—</div><div class="stat-sub">awaiting review</div></div>
-          <div class="stat-card red"><div class="stat-label">Cleaned</div><div class="stat-value" id="st-deleted">—</div><div class="stat-sub">spam / promotions</div></div>
-          <div class="stat-card blue"><div class="stat-label">Last 24h</div><div class="stat-value" id="st-24h">—</div><div class="stat-sub">new emails</div></div>
+          <div class="stat-card orange"><div class="stat-label">Pending Approvals</div><div class="stat-value" id="st-approvals">—</div><div class="stat-sub">awaiting review</div></div>
+          <div class="stat-card red"><div class="stat-label">Spam Deleted</div><div class="stat-value" id="st-deleted">—</div><div class="stat-sub">spam / promotions</div></div>
         </div>
 
         <div class="row">
@@ -620,8 +613,7 @@
             <div class="panel-title">✉ Email Inbox</div>
             <div style="display:flex;gap:8px;align-items:center;">
               <select id="inboxSource" onchange="loadEmails()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-family:var(--mono);font-size:11px;">
-                <option value="db">Processed Emails (DB)</option>
-                <option value="live">Live Gmail Inbox</option>
+                <option value="live" selected>Live Gmail Inbox</option>
               </select>
               <select id="inboxFilter" onchange="loadEmails()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-family:var(--mono);font-size:11px;">
                 <option value="">All Status</option>
@@ -673,65 +665,6 @@
         </div>
       </div>
     </div>
-
-    <!-- ══════════════════════════════ PROCESS EMAIL ══════════════════════════════ -->
-    <div id="page-compose" class="page">
-      <div class="section-gap">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">✏ Process a New Email</div>
-          </div>
-          <div class="panel-body">
-            <div style="display:flex;flex-direction:column;gap:14px;">
-              <div class="row">
-                <div class="col">
-                  <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;letter-spacing:1px;text-transform:uppercase;">Provider</label>
-                  <select id="p-provider" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;">
-                    <option value="imap">IMAP / Custom</option>
-                    <option value="gmail">Gmail</option>
-                    <option value="outlook">Outlook</option>
-                  </select>
-                </div>
-                <div class="col">
-                  <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;letter-spacing:1px;text-transform:uppercase;">Message ID</label>
-                  <input id="p-msgid" type="text" placeholder="msg-001@example.com" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;">
-                </div>
-              </div>
-              <div class="row">
-                <div class="col">
-                  <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;letter-spacing:1px;text-transform:uppercase;">Sender Email</label>
-                  <input id="p-sender" type="email" placeholder="sender@example.com" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;">
-                </div>
-                <div class="col">
-                  <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;letter-spacing:1px;text-transform:uppercase;">Sender Name</label>
-                  <input id="p-name" type="text" placeholder="John Doe" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;">
-                </div>
-              </div>
-              <div>
-                <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;letter-spacing:1px;text-transform:uppercase;">Subject</label>
-                <input id="p-subject" type="text" placeholder="Meeting Request for Q4 Review" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;">
-              </div>
-              <div>
-                <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;letter-spacing:1px;text-transform:uppercase;">Body</label>
-                <textarea id="p-body" rows="6" placeholder="Hi, I would like to schedule a meeting..." style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;resize:vertical;outline:none;"></textarea>
-              </div>
-              <div style="display:flex;gap:10px;">
-                <button class="btn btn-primary" onclick="processEmail()">⚙ Process Email</button>
-                <button class="btn btn-ghost" onclick="fillSampleEmail()">📋 Fill Sample</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel" id="processResult" style="display:none;">
-          <div class="panel-header">
-            <div class="panel-title">📊 Analysis Result</div>
-          </div>
-          <div class="panel-body" id="processResultBody"></div>
-        </div>
-      </div>
-    </div>
-
     <!-- ══════════════════════════════ CLEANUP ══════════════════════════════ -->
     <div id="page-cleanup" class="page">
       <div class="section-gap">
@@ -923,17 +856,11 @@ async function loadStats() {
     if (!d.success) return;
     const s = d.stats;
 
-    $('st-total').textContent      = s.emails.total || 0;
-    $('st-pending').textContent    = s.emails.pending || 0;
-    $('st-replied').textContent    = s.emails.replied || 0;
     $('st-autoreplied').textContent = s.emails.replied || 0;
-    $('st-deleted').textContent    = s.emails.deleted || 0;
-    $('st-24h').textContent        = s.emails.last_24h || 0;
-
+    $('st-deleted').textContent     = s.emails.deleted || 0;
     const approvalPending = s.approvals?.pending_count || 0;
-    $('st-approvals').textContent = approvalPending;
+    $('st-approvals').textContent   = approvalPending;
     $('nav-badge-approvals').textContent = approvalPending || '—';
-    $('nav-badge-inbox').textContent = s.emails.total || '—';
 
     // Intent chart
     if (s.byIntent?.length) {
@@ -992,7 +919,7 @@ async function loadStats() {
 
 // ══ EMAILS ══════════════════════════════════════════
 async function loadEmails() {
-  const source = $('inboxSource')?.value || 'db';
+  const source = $('inboxSource')?.value || 'live';
   const status = $('inboxFilter')?.value || '';
   const isLive = source === 'live';
 
@@ -1378,22 +1305,34 @@ async function addContact() {
 
 // ══ AUDIT LOG ══════════════════════════════════════════
 async function loadAuditLog() {
+  const el = $('auditLogContent');
+  if (el) el.innerHTML = '<div class="empty-state" style="padding:40px;"><div class="icon">⏳</div><p>Loading...</p></div>';
   try {
-    const d = await apiFetch('/audit-log?limit=50');
+    const d = await apiFetch('/audit-log?limit=100');
+    if (!el) return;
     const log = d.log || [];
     if (!log.length) {
-      $('auditLogContent').innerHTML = '<div class="empty-state" style="padding:60px;"><div class="icon">✅</div><p>No audit events yet</p></div>';
+      el.innerHTML = '<div class="empty-state" style="padding:60px;"><div class="icon">✅</div><p>No audit events yet — agent actions will appear here</p></div>';
       return;
     }
-    $('auditLogContent').innerHTML = log.map(l =>
-      `<div class="log-line">
+    el.innerHTML = log.map(l => {
+      const details = l.details ? JSON.stringify(l.details).substring(0,120) : '';
+      const evtColor = l.event_type?.includes('reply') ? 'var(--green)'
+                     : l.event_type?.includes('delete') ? 'var(--red)'
+                     : l.event_type?.includes('reject') ? 'var(--orange)'
+                     : 'var(--accent2)';
+      return `<div class="log-line">
         <span class="log-time">${fmtDate(l.created_at)}</span>
-        <span class="log-event">${l.event_type}</span>
-        <span style="color:var(--text3);font-size:10px;">${l.entity_type||''} ${l.entity_id||''}</span>
-        <span class="log-detail">${l.details ? JSON.stringify(l.details).substring(0,100) : ''}</span>
-      </div>`
-    ).join('');
-  } catch(e) { toast('Failed to load audit log', 'error'); }
+        <span class="log-event" style="color:${evtColor}">${l.event_type || '—'}</span>
+        <span style="color:var(--text3);font-size:10px;">${l.entity_type||''}</span>
+        <span class="log-detail">${details}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    console.error('Audit log error:', e);
+    if (el) el.innerHTML = `<div style="padding:20px;color:var(--red);">Failed to load audit log: ${e.message}</div>`;
+    toast('Failed to load audit log', 'error');
+  }
 }
 
 // ══ INIT ══════════════════════════════════════════
