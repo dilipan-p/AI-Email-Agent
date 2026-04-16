@@ -13,10 +13,7 @@ const approvalService = require('../services/approvalService');
 const cleanupService = require('../services/cleanupService');
 const calendarService = require('../services/calendarService');
 const logger = require('../config/logger');
-const { runAgentCycle } = require('../services/autonomousAgent');
-const { fallbackAnalysis } = require('../services/fallbackAnalysis');
-const { detectSpam } = require('../services/spamDetector');
-const { generateReply } = require('../services/replyEngine');
+const reminderService = require('../services/reminderService');
 
 // Validation middleware
 const validate = (req, res, next) => {
@@ -425,51 +422,86 @@ router.get('/audit-log', async (req, res) => {
 });
 
 // ============================================================
+// DELETE /contacts/:email
+// ============================================================
+router.delete('/contacts/:email', async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    await query('DELETE FROM known_contacts WHERE LOWER(email) = LOWER($1)', [email]);
+    res.json({ success: true, message: `Contact ${email} deleted` });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ============================================================
+// PATCH /contacts/:email - Update trust level
+// ============================================================
+router.patch('/contacts/:email', async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    const { trust_level } = req.body;
+    await query(
+      'UPDATE known_contacts SET trust_level = $1, updated_at = NOW() WHERE LOWER(email) = LOWER($2)',
+      [trust_level, email]
+    );
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ============================================================
+// REMINDERS
+// ============================================================
+router.get('/reminders', async (req, res) => {
+  try {
+    const status = req.query.status || null;
+    const reminders = await reminderService.getReminders(status);
+    res.json({ success: true, reminders });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/reminders/:id/dismiss', async (req, res) => {
+  try {
+    await reminderService.dismissReminder(req.params.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/reminders/:id/snooze', async (req, res) => {
+  try {
+    await reminderService.snoozeReminder(req.params.id, 1);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ============================================================
 // AUTONOMOUS AGENT ROUTES
 // ============================================================
-
-// POST /api/run-agent — manually trigger one agent cycle
 router.post('/run-agent', async (req, res) => {
   try {
-    logger.info('Manual agent cycle triggered via API');
+    const { runAgentCycle } = require('../services/autonomousAgent');
     const result = await runAgentCycle();
     res.json({ success: true, ...result });
-  } catch (err) {
-    logger.error('Agent cycle failed', { error: err.message });
-    res.status(500).json({ success: false, error: err.message });
-  }
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// POST /api/agent/analyze — analyse a single email with rule-based engine
 router.post('/agent/analyze', async (req, res) => {
   try {
+    const { fallbackAnalysis } = require('../services/fallbackAnalysis');
+    const { generateReply } = require('../services/replyEngine');
+    const { detectSpam } = require('../services/spamDetector');
     const { sender, subject, body, isKnownContact } = req.body;
     if (!sender) return res.status(400).json({ error: 'sender is required' });
-
-    const spamResult   = detectSpam({ sender, subject, body });
-    const analysis     = fallbackAnalysis({ sender, subject, body, isKnownContact: !!isKnownContact });
-    const reply        = generateReply({ sender, subject, body }, analysis);
-
-    res.json({
-      success: true,
-      spam:     spamResult,
-      analysis,
-      suggestedReply: reply,
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const spam     = detectSpam({ sender, subject, body });
+    const analysis = fallbackAnalysis({ sender, subject, body, isKnownContact: !!isKnownContact });
+    const reply    = generateReply({ sender, subject, body }, analysis);
+    res.json({ success: true, spam, analysis, suggestedReply: reply });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-// GET /api/agent/status — show agent config and last-run info
 router.get('/agent/status', (req, res) => {
   res.json({
-    autoReplyEnabled:    process.env.AUTO_REPLY_ENABLED === 'true',
-    deletionThreshold:   parseFloat(process.env.DELETION_CONFIDENCE_THRESHOLD) || 0.90,
-    pollInterval:        process.env.EMAIL_POLL_INTERVAL || '*/5 * * * *',
-    batchSize:           parseInt(process.env.BATCH_SIZE) || 20,
-    engine:              'rule-based-heuristic-v1',
-    openAiRequired:      false,
+    autoReplyEnabled: process.env.AUTO_REPLY_ENABLED === 'true',
+    engine: 'rule-based-heuristic-v1',
+    openAiRequired: false,
   });
 });
 
