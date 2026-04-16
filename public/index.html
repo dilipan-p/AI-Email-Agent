@@ -3,1358 +3,461 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Email Agent — Command Center</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<title>AI Email Agent</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #0a0a0f;
-    --surface: #111118;
-    --surface2: #16161f;
-    --surface3: #1c1c28;
-    --border: #2a2a3a;
-    --border2: #35354a;
-    --accent: #6c63ff;
-    --accent2: #a78bfa;
-    --green: #22d3a0;
-    --red: #f87171;
-    --yellow: #fbbf24;
-    --blue: #60a5fa;
-    --orange: #fb923c;
-    --text: #e2e2f0;
-    --text2: #9494b0;
-    --text3: #5a5a78;
-    --mono: 'JetBrains Mono', monospace;
-    --sans: 'Syne', sans-serif;
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--mono);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* ── TOP BAR ── */
-  .topbar {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 0 24px;
-    height: 56px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-
-  .logo {
-    font-family: var(--sans);
-    font-weight: 800;
-    font-size: 18px;
-    letter-spacing: -0.5px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .logo-icon {
-    width: 28px; height: 28px;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px;
-  }
-
-  .status-bar {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    font-size: 11px;
-    color: var(--text2);
-  }
-
-  .status-dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 6px var(--green);
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-
-  /* ── LAYOUT ── */
-  .layout {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-  }
-
-  /* ── SIDEBAR ── */
-  .sidebar {
-    width: 220px;
-    min-width: 220px;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    padding: 16px 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .nav-section {
-    padding: 8px 16px 4px;
-    font-size: 9px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-top: 8px;
-  }
-
-  .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 16px;
-    cursor: pointer;
-    font-size: 12px;
-    color: var(--text2);
-    border-left: 2px solid transparent;
-    transition: all 0.15s;
-    position: relative;
-  }
-
-  .nav-item:hover { color: var(--text); background: var(--surface2); }
-  .nav-item.active {
-    color: var(--accent2);
-    background: rgba(108, 99, 255, 0.08);
-    border-left-color: var(--accent);
-  }
-
-  .nav-badge {
-    margin-left: auto;
-    background: var(--accent);
-    color: #fff;
-    font-size: 9px;
-    padding: 1px 6px;
-    border-radius: 10px;
-    min-width: 18px;
-    text-align: center;
-  }
-
-  .nav-badge.red { background: var(--red); }
-  .nav-badge.green { background: var(--green); color: #000; }
-
-  /* ── MAIN ── */
-  .main {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-
-  /* ── PANELS ── */
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-
-  .panel-header {
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .panel-title {
-    font-family: var(--sans);
-    font-size: 13px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .panel-body { padding: 18px; }
-
-  /* ── STATS GRID ── */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 14px;
-  }
-
-  .stat-card {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .stat-card::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-  }
-
-  .stat-card.purple::before { background: var(--accent); }
-  .stat-card.green::before { background: var(--green); }
-  .stat-card.red::before { background: var(--red); }
-  .stat-card.yellow::before { background: var(--yellow); }
-  .stat-card.blue::before { background: var(--blue); }
-  .stat-card.orange::before { background: var(--orange); }
-
-  .stat-label {
-    font-size: 10px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--text3);
-    margin-bottom: 8px;
-  }
-
-  .stat-value {
-    font-family: var(--sans);
-    font-size: 28px;
-    font-weight: 800;
-    line-height: 1;
-  }
-
-  .stat-sub { font-size: 10px; color: var(--text3); margin-top: 4px; }
-
-  /* ── TABLES ── */
-  .table-wrap { overflow-x: auto; }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-  }
-
-  thead th {
-    background: var(--surface2);
-    padding: 10px 14px;
-    text-align: left;
-    font-size: 10px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--text3);
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  tbody tr {
-    border-bottom: 1px solid var(--border);
-    transition: background 0.1s;
-  }
-
-  tbody tr:hover { background: var(--surface2); }
-  tbody tr:last-child { border-bottom: none; }
-
-  td {
-    padding: 12px 14px;
-    vertical-align: middle;
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* ── BADGES ── */
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 10px;
-    font-weight: 500;
-    white-space: nowrap;
-  }
-
-  .badge-purple { background: rgba(108,99,255,0.2); color: var(--accent2); border: 1px solid rgba(108,99,255,0.3); }
-  .badge-green  { background: rgba(34,211,160,0.15); color: var(--green);  border: 1px solid rgba(34,211,160,0.25); }
-  .badge-red    { background: rgba(248,113,113,0.15); color: var(--red);   border: 1px solid rgba(248,113,113,0.25); }
-  .badge-yellow { background: rgba(251,191,36,0.15); color: var(--yellow); border: 1px solid rgba(251,191,36,0.25); }
-  .badge-blue   { background: rgba(96,165,250,0.15); color: var(--blue);   border: 1px solid rgba(96,165,250,0.25); }
-  .badge-orange { background: rgba(251,146,60,0.15); color: var(--orange); border: 1px solid rgba(251,146,60,0.25); }
-  .badge-gray   { background: rgba(90,90,120,0.2); color: var(--text2);    border: 1px solid rgba(90,90,120,0.3); }
-
-  /* ── BUTTONS ── */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 14px;
-    border-radius: 6px;
-    font-family: var(--mono);
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-    transition: all 0.15s;
-    white-space: nowrap;
-  }
-
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: #7c73ff; }
-  .btn-success { background: rgba(34,211,160,0.15); color: var(--green); border: 1px solid rgba(34,211,160,0.3); }
-  .btn-success:hover { background: rgba(34,211,160,0.25); }
-  .btn-danger  { background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid rgba(248,113,113,0.3); }
-  .btn-danger:hover  { background: rgba(248,113,113,0.25); }
-  .btn-ghost   { background: transparent; color: var(--text2); border: 1px solid var(--border); }
-  .btn-ghost:hover   { color: var(--text); border-color: var(--border2); }
-
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  /* ── EMAIL DETAIL ── */
-  .email-detail {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 16px;
-  }
-
-  .email-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .email-body-preview {
-    font-size: 12px;
-    color: var(--text2);
-    line-height: 1.7;
-    padding: 14px;
-    background: var(--surface3);
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    white-space: pre-wrap;
-    max-height: 150px;
-    overflow-y: auto;
-    font-family: var(--mono);
-  }
-
-  .reply-preview {
-    font-size: 12px;
-    color: var(--text);
-    line-height: 1.7;
-    padding: 14px;
-    background: rgba(108,99,255,0.06);
-    border-radius: 6px;
-    border: 1px solid rgba(108,99,255,0.2);
-    white-space: pre-wrap;
-    font-family: var(--mono);
-  }
-
-  textarea.reply-edit {
-    width: 100%;
-    background: var(--surface3);
-    border: 1px solid var(--border2);
-    border-radius: 6px;
-    color: var(--text);
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.7;
-    padding: 12px;
-    resize: vertical;
-    min-height: 120px;
-    outline: none;
-    transition: border-color 0.15s;
-  }
-  textarea.reply-edit:focus { border-color: var(--accent); }
-
-  /* ── TABS ── */
-  .tab-row {
-    display: flex;
-    gap: 4px;
-    padding: 0 18px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .tab {
-    padding: 10px 16px;
-    font-size: 11px;
-    cursor: pointer;
-    color: var(--text2);
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    transition: all 0.15s;
-  }
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
-
-  /* ── LOG ── */
-  .log-line {
-    padding: 8px 14px;
-    font-size: 11px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    gap: 14px;
-    align-items: flex-start;
-    color: var(--text2);
-  }
-
-  .log-time { color: var(--text3); white-space: nowrap; min-width: 80px; }
-  .log-event { color: var(--accent2); white-space: nowrap; }
-  .log-detail { color: var(--text2); }
-
-  /* ── MISC ── */
-  .empty-state {
-    text-align: center;
-    padding: 60px 20px;
-    color: var(--text3);
-  }
-
-  .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
-  .empty-state p { font-size: 12px; }
-
-  .confidence-bar {
-    height: 4px;
-    background: var(--surface3);
-    border-radius: 2px;
-    overflow: hidden;
-    width: 80px;
-    display: inline-block;
-    vertical-align: middle;
-  }
-
-  .confidence-fill {
-    height: 100%;
-    border-radius: 2px;
-    background: linear-gradient(90deg, var(--green), var(--accent));
-  }
-
-  .page { display: none; }
-  .page.active { display: contents; }
-
-  .toast {
-    position: fixed;
-    bottom: 24px; right: 24px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 18px;
-    font-size: 12px;
-    z-index: 9999;
-    animation: slideIn 0.2s ease;
-    max-width: 340px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-  }
-
-  .toast.success { border-color: var(--green); color: var(--green); }
-  .toast.error   { border-color: var(--red);   color: var(--red); }
-  .toast.info    { border-color: var(--accent); color: var(--accent2); }
-
-  @keyframes slideIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  .spinner {
-    display: inline-block;
-    width: 12px; height: 12px;
-    border: 2px solid rgba(255,255,255,0.2);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .section-gap { display: flex; flex-direction: column; gap: 20px; }
-
-  .row { display: flex; gap: 16px; flex-wrap: wrap; }
-  .col { flex: 1; min-width: 260px; }
-
-  .code-block {
-    background: var(--surface3);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 16px;
-    font-size: 11px;
-    line-height: 1.8;
-    color: var(--accent2);
-    overflow-x: auto;
-    white-space: pre;
-  }
-
-  .intent-icon {
-    font-size: 14px;
-    margin-right: 4px;
-  }
-
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+:root{--bg:#0a0a0f;--surface:#13131a;--surface2:#1a1a24;--surface3:#22222e;--border:#2a2a38;--text:#e8e8f0;--text2:#9090a8;--text3:#55556a;--accent:#7c6fff;--accent2:#5b4fd4;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b;--blue:#3b82f6;--orange:#f97316;--purple:#a855f7;--mono:'JetBrains Mono',monospace;--sans:'Inter',system-ui,sans-serif;--radius:10px;}
+body.light{--bg:#f0f0f8;--surface:#ffffff;--surface2:#f4f4fc;--surface3:#eaeaf5;--border:#d8d8ee;--text:#111120;--text2:#44445a;--text3:#888899;--accent:#6c5fff;--accent2:#4f3fd4;--green:#16a34a;--red:#dc2626;--yellow:#d97706;--blue:#2563eb;--orange:#ea580c;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;}
+.logo-icon{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;}
+.topbar-right{display:flex;align-items:center;gap:10px;}
+.status-pill{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);background:var(--surface2);padding:4px 10px;border-radius:20px;border:1px solid var(--border);}
+.dot{width:7px;height:7px;background:var(--green);border-radius:50%;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.clock{font-family:var(--mono);font-size:12px;color:var(--text2);}
+.btn{font-family:var(--sans);font-size:12px;font-weight:500;padding:6px 14px;border-radius:7px;border:1px solid var(--border);cursor:pointer;transition:.15s;background:var(--surface2);color:var(--text);}
+.btn:hover{background:var(--surface3);border-color:var(--accent);}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn-primary:hover{background:var(--accent2);}
+.btn-danger{background:rgba(239,68,68,.1);border-color:var(--red);color:var(--red);}
+.btn-danger:hover{background:rgba(239,68,68,.2);}
+.icon-btn{background:none;border:none;cursor:pointer;font-size:18px;padding:4px 8px;border-radius:6px;transition:.15s;}
+.icon-btn:hover{background:var(--surface3);}
+.layout{display:flex;flex:1;overflow:hidden;height:calc(100vh - 56px);}
+.sidebar{width:210px;background:var(--surface);border-right:1px solid var(--border);padding:14px 0;display:flex;flex-direction:column;gap:2px;overflow-y:auto;flex-shrink:0;}
+.nav-section{font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;padding:12px 18px 4px;}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 18px;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;transition:.12s;border-left:3px solid transparent;}
+.nav-item:hover{background:var(--surface2);color:var(--text);}
+.nav-item.active{background:rgba(124,111,255,.1);color:var(--accent);border-left-color:var(--accent);}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;min-width:18px;text-align:center;}
+.nav-badge.yellow{background:var(--yellow);color:#000;}
+.main{flex:1;overflow-y:auto;padding:24px;}
+.page{display:none;}
+.page.active{display:block;}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px;}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);}
+.panel-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;}
+.panel-body{padding:18px;}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;position:relative;overflow:hidden;}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;}
+.stat-card.green::before{background:var(--green);}
+.stat-card.yellow::before{background:var(--yellow);}
+.stat-card.red::before{background:var(--red);}
+.stat-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text3);margin-bottom:8px;}
+.stat-value{font-size:30px;font-weight:700;font-family:var(--mono);color:var(--text);line-height:1;}
+.stat-sub{font-size:11px;color:var(--text3);margin-top:5px;}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;font-family:var(--mono);}
+.badge-green{background:rgba(34,197,94,.15);color:var(--green);}
+.badge-red{background:rgba(239,68,68,.15);color:var(--red);}
+.badge-yellow{background:rgba(245,158,11,.15);color:var(--yellow);}
+.badge-blue{background:rgba(59,130,246,.15);color:var(--blue);}
+.badge-gray{background:rgba(255,255,255,.06);color:var(--text3);}
+.badge-orange{background:rgba(249,115,22,.15);color:var(--orange);}
+.bar-row{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+.bar-label{font-size:12px;color:var(--text2);width:110px;flex-shrink:0;text-transform:capitalize;}
+.bar-track{flex:1;background:var(--surface3);border-radius:4px;height:6px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:4px;transition:.5s;}
+.bar-count{font-size:12px;color:var(--text2);font-family:var(--mono);min-width:22px;text-align:right;}
+.log-row{display:flex;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px;}
+.log-row:last-child{border-bottom:none;}
+.log-time{color:var(--text3);font-family:var(--mono);font-size:10px;white-space:nowrap;min-width:110px;}
+.log-event{font-weight:600;font-family:var(--mono);min-width:160px;font-size:10px;}
+.log-detail{color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.reminder-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;}
+.reminder-card.due{border-color:var(--yellow);background:rgba(245,158,11,.06);}
+.reminder-card.high-p{border-color:var(--red);background:rgba(239,68,68,.06);}
+.reminder-icon{font-size:20px;flex-shrink:0;}
+.reminder-body{flex:1;min-width:0;}
+.reminder-label{font-size:13px;font-weight:500;}
+.reminder-meta{font-size:11px;color:var(--text3);margin-top:3px;}
+.reminder-actions{display:flex;gap:6px;flex-shrink:0;}
+.approval-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px;}
+.reply-preview{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:11px;color:var(--text2);white-space:pre-wrap;max-height:100px;overflow-y:auto;margin:10px 0;font-family:var(--mono);line-height:1.6;}
+.contact-row{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.04);}
+.contact-row:last-child{border-bottom:none;}
+.avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;}
+.contact-info{flex:1;min-width:0;}
+.contact-name{font-size:13px;font-weight:500;}
+.contact-email{font-size:11px;color:var(--text3);}
+.trust-select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;font-size:11px;cursor:pointer;}
+.empty{text-align:center;padding:50px 20px;color:var(--text3);}
+.empty-icon{font-size:36px;margin-bottom:10px;}
+.empty-text{font-size:13px;}
+#toast-wrap{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:9999;}
+.toast{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 15px;font-size:13px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.4);animation:slideIn .2s;}
+.toast.success{border-color:var(--green);}
+.toast.error{border-color:var(--red);}
+@keyframes slideIn{from{transform:translateX(120%);opacity:0;}to{transform:none;opacity:1;}}
+input[type=text],input:not([type]){background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:12px;font-family:var(--sans);}
+input:focus{outline:none;border-color:var(--accent);}
 </style>
 </head>
 <body>
 
-<!-- TOP BAR -->
 <div class="topbar">
   <div class="logo">
     <div class="logo-icon">✉</div>
     AI Email Agent
   </div>
-  <div class="status-bar">
-    <div class="status-dot"></div>
-    <span id="statusText">System Active</span>
-    <span>|</span>
-    <span id="topClock"></span>
-    <button class="btn btn-ghost" onclick="toggleTheme()" id="themeToggle" title="Toggle light/dark mode" style="font-size:15px;padding:4px 10px;">🌙</button>
-    <button class="btn btn-ghost" onclick="runProcessAll()" id="syncBtn">⟳ Sync Now</button>
+  <div class="topbar-right">
+    <div class="status-pill"><div class="dot"></div><span>Agent Active</span></div>
+    <span class="clock" id="topClock"></span>
+    <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+    <button class="btn btn-primary" id="syncBtn" onclick="runAgent()">⟳ Sync Now</button>
   </div>
 </div>
 
-<!-- LAYOUT -->
 <div class="layout">
-
-  <!-- SIDEBAR -->
   <nav class="sidebar">
-    <div class="nav-section">Monitor</div>
-    <div class="nav-item active" onclick="showPage('dashboard', this)">
-      <span>⬡</span> Dashboard
+    <div class="nav-section">Overview</div>
+    <div class="nav-item active" onclick="nav('dashboard',this)">📊 Dashboard</div>
+    <div class="nav-item" onclick="nav('reminders',this)">
+      🔔 Reminders
+      <span class="nav-badge yellow" id="badge-remind" style="display:none"></span>
     </div>
-    <div class="nav-item" onclick="showPage('inbox', this)">
-      <span>✉</span> Inbox
-      <span class="nav-badge" id="nav-badge-inbox">—</span>
-    </div>
-
     <div class="nav-section">Actions</div>
-    <div class="nav-item" onclick="showPage('approvals', this)">
-      <span>◎</span> Approvals
-      <span class="nav-badge red" id="nav-badge-approvals">—</span>
+    <div class="nav-item" onclick="nav('approvals',this)">
+      ⏳ Approvals
+      <span class="nav-badge" id="badge-approvals" style="display:none"></span>
     </div>
-
     <div class="nav-section">Management</div>
-    <div class="nav-item" onclick="showPage('cleanup', this)">
-      <span>⌫</span> Cleanup
-    </div>
-    <div class="nav-item" onclick="showPage('contacts', this)">
-      <span>◉</span> Contacts
-    </div>
+    <div class="nav-item" onclick="nav('contacts',this)">👥 Contacts</div>
     <div class="nav-section">System</div>
-    <div class="nav-item" onclick="showPage('logs', this)">
-      <span>≡</span> Audit Log
-    </div>
+    <div class="nav-item" onclick="nav('audit',this)">📋 Audit Log</div>
   </nav>
 
-  <!-- MAIN CONTENT -->
   <main class="main">
 
-    <!-- ══════════════════════════════ DASHBOARD ══════════════════════════════ -->
+    <!-- DASHBOARD -->
     <div id="page-dashboard" class="page active">
-      <div class="section-gap">
-        <div class="stats-grid" id="statsGrid" style="grid-template-columns:repeat(3,1fr);">
-          <div class="stat-card green"><div class="stat-label">Auto Replied</div><div class="stat-value" id="st-autoreplied">—</div><div class="stat-sub">sent by agent</div></div>
-          <div class="stat-card orange"><div class="stat-label">Pending Approvals</div><div class="stat-value" id="st-approvals">—</div><div class="stat-sub">awaiting review</div></div>
-          <div class="stat-card red"><div class="stat-label">Spam Deleted</div><div class="stat-value" id="st-deleted">—</div><div class="stat-sub">spam / promotions</div></div>
-        </div>
-
-        <div class="row">
-          <div class="col">
-            <div class="panel">
-              <div class="panel-header">
-                <div class="panel-title">🎯 By Intent</div>
-              </div>
-              <div class="panel-body" id="intentChart">
-                <div class="empty-state"><div class="icon">📊</div><p>Loading...</p></div>
-              </div>
-            </div>
-          </div>
-          <div class="col">
-            <div class="panel">
-              <div class="panel-header">
-                <div class="panel-title">⚡ By Decision</div>
-              </div>
-              <div class="panel-body" id="decisionChart">
-                <div class="empty-state"><div class="icon">📊</div><p>Loading...</p></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
+      <div class="grid-3">
+        <div class="stat-card green"><div class="stat-label">Auto Replied</div><div class="stat-value" id="st-replied">—</div><div class="stat-sub">sent by agent</div></div>
+        <div class="stat-card yellow"><div class="stat-label">Pending Approvals</div><div class="stat-value" id="st-approvals">—</div><div class="stat-sub">awaiting review</div></div>
+        <div class="stat-card red"><div class="stat-label">Spam Deleted</div><div class="stat-value" id="st-deleted">—</div><div class="stat-sub">cleaned automatically</div></div>
+      </div>
+      <div class="grid-2">
         <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">🕒 Recent Activity</div>
-            <button class="btn btn-ghost" onclick="loadStats()">↻ Refresh</button>
-          </div>
-          <div id="recentActivity">
-            <div class="empty-state"><div class="icon">⏳</div><p>Loading activity...</p></div>
-          </div>
+          <div class="panel-header"><div class="panel-title">📨 Emails by Intent</div></div>
+          <div class="panel-body" id="intentChart"><div class="empty"><div class="empty-text">Loading...</div></div></div>
         </div>
+        <div class="panel">
+          <div class="panel-header"><div class="panel-title">⚡ By Decision</div></div>
+          <div class="panel-body" id="decisionChart"><div class="empty"><div class="empty-text">Loading...</div></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">🕒 Recent Activity</div>
+          <button class="btn" onclick="loadDashboard()">↻ Refresh</button>
+        </div>
+        <div id="recentActivity"><div class="empty"><div class="empty-icon">✅</div><div class="empty-text">No recent activity</div></div></div>
       </div>
     </div>
 
-    <!-- ══════════════════════════════ INBOX ══════════════════════════════ -->
-    <div id="page-inbox" class="page">
-      <div class="section-gap">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">✉ Email Inbox</div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <select id="inboxSource" onchange="loadEmails()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-family:var(--mono);font-size:11px;">
-                <option value="live" selected>Live Gmail Inbox</option>
-              </select>
-              <select id="inboxFilter" onchange="loadEmails()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-family:var(--mono);font-size:11px;">
-                <option value="">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="replied">Replied</option>
-                <option value="ignored">Ignored</option>
-                <option value="trashed">Trashed</option>
-              </select>
-              <button class="btn btn-ghost" onclick="loadEmails()">↻ Refresh</button>
-              <button class="btn btn-primary" onclick="fetchLiveAndProcess()" style="font-size:11px;padding:6px 12px;">⟳ Fetch &amp; Process</button>
-            </div>
-          </div>
-          <div id="inboxSourceLabel" style="padding:8px 16px;font-size:10px;color:var(--text3);border-bottom:1px solid var(--border);"></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Sender</th>
-                  <th>Subject</th>
-                  <th>Intent</th>
-                  <th>Tone</th>
-                  <th>Priority</th>
-                  <th>Decision</th>
-                  <th>Confidence</th>
-                  <th>Status</th>
-                  <th>Received</th>
-                </tr>
-              </thead>
-              <tbody id="inboxTable">
-                <tr><td colspan="9" class="empty-state" style="padding:40px;text-align:center;color:var(--text3);">Loading emails...</td></tr>
-              </tbody>
-            </table>
+    <!-- REMINDERS -->
+    <div id="page-reminders" class="page">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">🔔 Reminders</div>
+          <div style="display:flex;gap:8px">
+            <select id="reminderFilter" onchange="loadReminders()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:6px;font-size:12px;">
+              <option value="">All</option>
+              <option value="pending">Pending</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+            <button class="btn" onclick="loadReminders()">↻ Refresh</button>
           </div>
         </div>
+        <div class="panel-body" id="remindersList"><div class="empty"><div class="empty-icon">🔔</div><div class="empty-text">No reminders yet — they appear automatically when the agent replies to task or meeting emails</div></div></div>
       </div>
     </div>
 
-    <!-- ══════════════════════════════ APPROVALS ══════════════════════════════ -->
+    <!-- APPROVALS -->
     <div id="page-approvals" class="page">
-      <div class="section-gap">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">◎ Pending Approvals</div>
-            <button class="btn btn-ghost" onclick="loadApprovals()">↻ Refresh</button>
-          </div>
-          <div id="approvalsList" style="padding:0;">
-            <div class="empty-state" style="padding:60px;"><div class="icon">✅</div><p>Loading approvals...</p></div>
-          </div>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">⏳ Pending Approvals</div>
+          <button class="btn" onclick="loadApprovals()">↻ Refresh</button>
         </div>
-      </div>
-    </div>
-    <!-- ══════════════════════════════ CLEANUP ══════════════════════════════ -->
-    <div id="page-cleanup" class="page">
-      <div class="section-gap">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">⌫ Inbox Cleanup</div>
-            <button class="btn btn-danger" onclick="runCleanup()">🧹 Run Cleanup</button>
-          </div>
-          <div class="panel-body">
-            <div class="stats-grid" id="cleanupStats">
-              <div class="stat-card red"><div class="stat-label">Total Cleaned</div><div class="stat-value" id="cs-total">—</div></div>
-              <div class="stat-card orange"><div class="stat-label">Trashed</div><div class="stat-value" id="cs-trashed">—</div></div>
-              <div class="stat-card blue"><div class="stat-label">Moved</div><div class="stat-value" id="cs-moved">—</div></div>
-              <div class="stat-card green"><div class="stat-label">Recovered</div><div class="stat-value" id="cs-recovered">—</div></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">📋 Deletion Log</div>
-            <button class="btn btn-ghost" onclick="loadDeletionLog()">↻ Refresh</button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Subject</th><th>Sender</th><th>Reason</th><th>Action</th><th>Confidence</th><th>Deleted At</th><th>Recover</th></tr></thead>
-              <tbody id="deletionLogTable"><tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3);">Loading...</td></tr></tbody>
-            </table>
-          </div>
-        </div>
+        <div class="panel-body" id="approvalsList"><div class="empty"><div class="empty-icon">✅</div><div class="empty-text">All caught up!</div></div></div>
       </div>
     </div>
 
-    <!-- ══════════════════════════════ CONTACTS ══════════════════════════════ -->
+    <!-- CONTACTS -->
     <div id="page-contacts" class="page">
-      <div class="section-gap">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">◉ Add Contact</div>
-          </div>
-          <div class="panel-body">
-            <div class="row" style="align-items:flex-end;">
-              <div class="col"><label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Email</label><input id="c-email" type="email" placeholder="contact@example.com" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;"></div>
-              <div class="col"><label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Name</label><input id="c-name" type="text" placeholder="Full Name" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;"></div>
-              <div class="col"><label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Trust Level</label><select id="c-trust" style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:6px;font-family:var(--mono);font-size:12px;"><option value="known">Known</option><option value="trusted">Trusted</option><option value="blocked">Blocked</option></select></div>
-              <div><button class="btn btn-primary" onclick="addContact()">+ Add</button></div>
-            </div>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">👥 Known Contacts</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="newEmail" type="text" placeholder="email@example.com" style="width:180px">
+            <input id="newName" type="text" placeholder="Name" style="width:120px">
+            <button class="btn btn-primary" onclick="addContact()">+ Add</button>
+            <button class="btn" onclick="loadContacts()">↻ Refresh</button>
           </div>
         </div>
-
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">◉ Known Contacts</div>
-            <button class="btn btn-ghost" onclick="loadContacts()">↻ Refresh</button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Email</th><th>Name</th><th>Domain</th><th>Trust Level</th><th>Interactions</th><th>Added</th><th>Actions</th></tr></thead>
-              <tbody id="contactsTable"><tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3);">Loading...</td></tr></tbody>
-            </table>
-          </div>
-        </div>
+        <div id="contactsList"><div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No contacts yet</div></div></div>
       </div>
     </div>
 
-    <!-- ══════════════════════════════ AUDIT LOG ══════════════════════════════ -->
-    <div id="page-logs" class="page">
-      <div class="section-gap">
-        <div class="panel">
-          <div class="panel-header">
-            <div class="panel-title">≡ Audit Log</div>
-            <button class="btn btn-ghost" onclick="loadAuditLog()">↻ Refresh</button>
-          </div>
-          <div id="auditLogContent">
-            <div class="empty-state" style="padding:60px;"><div class="icon">⏳</div><p>Loading...</p></div>
-          </div>
+    <!-- AUDIT -->
+    <div id="page-audit" class="page">
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">📋 Audit Log</div>
+          <button class="btn" onclick="loadAudit()">↻ Refresh</button>
         </div>
+        <div id="auditList"><div class="empty"><div class="empty-icon">📋</div><div class="empty-text">Loading...</div></div></div>
       </div>
     </div>
 
   </main>
 </div>
+<div id="toast-wrap"></div>
 
 <script>
-const API = '/api';
+const API='/api';
+const $=id=>document.getElementById(id);
 
-// ══ UTILITIES ══════════════════════════════════════════
-function $(id) { return document.getElementById(id); }
-
-function showPage(name, el) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  $(`page-${name}`).classList.add('active');
-  if (el) el.classList.add('active');
-
-  const loaders = {
-    dashboard: loadStats,
-    inbox: loadEmails,
-    approvals: loadApprovals,
-    cleanup: () => { loadCleanupStats(); loadDeletionLog(); },
-    contacts: loadContacts,
-    logs: loadAuditLog,
-  };
-  if (loaders[name]) loaders[name]();
+// Theme
+function toggleTheme(){
+  const l=document.body.classList.toggle('light');
+  $('themeBtn').textContent=l?'☀️':'🌙';
+  localStorage.setItem('aea_theme',l?'light':'dark');
+}
+if(localStorage.getItem('aea_theme')==='light'){
+  document.body.classList.add('light');
+  document.addEventListener('DOMContentLoaded',()=>{const b=$('themeBtn');if(b)b.textContent='☀️';});
 }
 
-function toast(msg, type='info') {
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 3500);
+// Clock
+setInterval(()=>{$('topClock').textContent=new Date().toLocaleTimeString();},1000);
+$('topClock').textContent=new Date().toLocaleTimeString();
+
+// Nav
+const LOADERS={dashboard:loadDashboard,reminders:loadReminders,approvals:loadApprovals,contacts:loadContacts,audit:loadAudit};
+function nav(page,el){
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  $('page-'+page).classList.add('active');
+  if(LOADERS[page])LOADERS[page]();
 }
 
-function fmtDate(d) {
-  if (!d) return '—';
-  return new Date(d).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+// Toast
+function toast(msg,type='success'){
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  el.innerHTML=`<span>${type==='success'?'✅':'❌'}</span><span>${msg}</span>`;
+  $('toast-wrap').appendChild(el);
+  setTimeout(()=>el.remove(),3500);
 }
 
-function fmtConf(v) {
-  const pct = Math.round((v||0)*100);
-  const color = pct>=85?'var(--green)':pct>=60?'var(--yellow)':'var(--red)';
-  return `<span class="confidence-bar"><span class="confidence-fill" style="width:${pct}%;background:${color}"></span></span> <span style="color:${color};font-size:10px;">${pct}%</span>`;
-}
-
-const intentMeta = {
-  meeting_request: { label:'Meeting', cls:'badge-blue', icon:'📅' },
-  question:        { label:'Question', cls:'badge-purple', icon:'❓' },
-  task_request:    { label:'Task', cls:'badge-orange', icon:'📋' },
-  spam:            { label:'Spam', cls:'badge-red', icon:'🚫' },
-  promotional:     { label:'Promo', cls:'badge-red', icon:'📢' },
-  personal:        { label:'Personal', cls:'badge-green', icon:'👤' },
-  informational:   { label:'Info', cls:'badge-gray', icon:'ℹ' },
-  other:           { label:'Other', cls:'badge-gray', icon:'•' },
-};
-
-const toneMeta = {
-  formal:   { label:'Formal',   cls:'badge-blue' },
-  informal: { label:'Informal', cls:'badge-green' },
-  friendly: { label:'Friendly', cls:'badge-green' },
-  humorous: { label:'Humorous', cls:'badge-purple' },
-  neutral:  { label:'Neutral',  cls:'badge-gray' },
-  urgent:   { label:'Urgent',   cls:'badge-orange' },
-  angry:    { label:'Angry',    cls:'badge-red' },
-  unknown:  { label:'Unknown',  cls:'badge-gray' },
-};
-
-const decisionMeta = {
-  AUTO_REPLY:      { label:'AUTO_REPLY',     cls:'badge-green' },
-  NEEDS_APPROVAL:  { label:'NEEDS_APPROVAL', cls:'badge-yellow' },
-  IGNORE:          { label:'IGNORE',         cls:'badge-gray' },
-  DELETE:          { label:'DELETE',         cls:'badge-red' },
-};
-
-const statusMeta = {
-  pending:   { label:'Pending',   cls:'badge-yellow' },
-  processed: { label:'Processed', cls:'badge-blue' },
-  replied:   { label:'Replied',   cls:'badge-green' },
-  ignored:   { label:'Ignored',   cls:'badge-gray' },
-  deleted:   { label:'Deleted',   cls:'badge-red' },
-  trashed:   { label:'Trashed',   cls:'badge-orange' },
-};
-
-function badge(map, key) {
-  const m = map[key] || { label: key||'—', cls:'badge-gray' };
-  return `<span class="badge ${m.cls}">${m.icon?`<span>${m.icon}</span>`:''}${m.label}</span>`;
-}
-
-async function apiFetch(path, opts={}) {
-  const r = await fetch(API + path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+// Fetch
+async function api(path,opts={}){
+  const r=await fetch(API+path,{headers:{'Content-Type':'application/json'},...opts,body:opts.body?JSON.stringify(opts.body):undefined});
   return r.json();
 }
 
-// ══ CLOCK ══════════════════════════════════════════
-function updateClock() {
-  $('topClock').textContent = new Date().toLocaleTimeString('en-US', { hour12:false });
+// Date format
+function fmtDate(d){
+  if(!d)return'—';
+  const dt=new Date(d);
+  return dt.toLocaleDateString('en-US',{month:'short',day:'numeric'})+', '+dt.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
 }
-setInterval(updateClock, 1000);
-updateClock();
 
-// ══ THEME ══════════════════════════════════════════
-function toggleTheme() {
-  const isLight = document.body.classList.toggle('light-mode');
-  const btn = $('themeToggle');
-  if (btn) btn.textContent = isLight ? '☀️' : '🌙';
-  localStorage.setItem('aiagent_theme', isLight ? 'light' : 'dark');
+// Sync
+async function runAgent(){
+  const btn=$('syncBtn');
+  btn.disabled=true;btn.textContent='⟳ Running...';
+  try{
+    const d=await api('/run-agent',{method:'POST'});
+    if(d.success){
+      const r=d.results||{};
+      toast(`Done — Replied: ${r.AUTO_REPLY||0} | Queued: ${r.NEEDS_APPROVAL||0} | Deleted: ${r.DELETE||0}`);
+      loadDashboard();updateBadges();
+    }else toast(d.error||'Agent error','error');
+  }catch(e){toast('Failed: '+e.message,'error');}
+  finally{btn.disabled=false;btn.textContent='⟳ Sync Now';}
 }
-(function() {
-  if (localStorage.getItem('aiagent_theme') === 'light') {
-    document.body.classList.add('light-mode');
-    window.addEventListener('DOMContentLoaded', () => {
-      const btn = $('themeToggle');
-      if (btn) btn.textContent = '☀️';
-    });
-  }
-})();
 
-// ══ STATS ══════════════════════════════════════════
-async function loadStats() {
-  try {
-    const d = await apiFetch('/stats');
-    if (!d.success) return;
-    const s = d.stats;
+// Badges
+async function updateBadges(){
+  try{
+    const[sd,rd]=await Promise.all([api('/stats'),api('/reminders?status=pending')]);
+    const ap=sd.stats?.approvals?.pending_count||0;
+    const ab=$('badge-approvals');
+    if(ap>0){ab.textContent=ap;ab.style.display='';}else ab.style.display='none';
+    const due=(rd.reminders||[]).filter(r=>new Date(r.remind_at)<=new Date()).length;
+    const rb=$('badge-remind');
+    if(due>0){rb.textContent=due;rb.style.display='';}else rb.style.display='none';
+  }catch{}
+}
 
-    $('st-autoreplied').textContent = s.emails.auto_replied || s.emails.replied || 0;
-    $('st-deleted').textContent     = s.emails.deleted || 0;
-    const approvalPending = s.approvals?.pending_count || 0;
-    $('st-approvals').textContent   = approvalPending;
-    $('nav-badge-approvals').textContent = approvalPending || '—';
+// Dashboard
+async function loadDashboard(){
+  try{
+    const[sd,ad]=await Promise.all([api('/stats'),api('/audit-log?limit=500')]);
+    const s=sd.stats;const logs=ad.log||[];
+    const autoReplied=logs.filter(l=>l.event_type==='auto_reply_sent').length;
+    $('st-replied').textContent=autoReplied;
+    $('st-deleted').textContent=s?.emails?.deleted||0;
+    $('st-approvals').textContent=s?.approvals?.pending_count||0;
 
-    // Intent chart
-    if (s.byIntent?.length) {
-      $('intentChart').innerHTML = s.byIntent.map(r => {
-        const m = intentMeta[r.intent] || { label: r.intent, cls:'badge-gray', icon:'' };
-        const pct = Math.round((r.count / (s.emails.total||1)) * 100);
-        return `<div style="margin-bottom:12px;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px;">
-            <span>${m.icon} ${m.label}</span>
-            <span style="color:var(--text2)">${r.count}</span>
-          </div>
-          <div style="background:var(--surface3);border-radius:3px;height:6px;">
-            <div style="width:${pct}%;height:100%;border-radius:3px;background:var(--accent);"></div>
-          </div>
-        </div>`;
-      }).join('');
-    }
+    // Intent chart from audit log
+    const im={};
+    logs.forEach(l=>{try{const d=JSON.parse(l.details||'{}');if(d.intent)im[d.intent]=(im[d.intent]||0)+1;}catch{}});
+    const ic={'meeting_request':'var(--blue)','question':'var(--purple)','task_request':'var(--yellow)','personal':'var(--green)','promotional':'var(--orange)','spam':'var(--red)','other':'var(--text3)'};
+    const il={'meeting_request':'Meeting','question':'Question','task_request':'Task','personal':'Personal','promotional':'Promo','spam':'Spam','other':'Other'};
+    const tot=Math.max(Object.values(im).reduce((a,b)=>a+b,0),1);
+    $('intentChart').innerHTML=Object.entries(im).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
+      <div class="bar-row"><div class="bar-label">${il[k]||k}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(v/tot*100)}%;background:${ic[k]||'var(--accent)'}"></div></div><div class="bar-count">${v}</div></div>`).join('')||'<div class="empty"><div class="empty-text">No data yet — run the agent to see stats</div></div>';
 
     // Decision chart
-    if (s.byDecision?.length) {
-      const colors = { AUTO_REPLY:'var(--green)', NEEDS_APPROVAL:'var(--yellow)', IGNORE:'var(--text3)', DELETE:'var(--red)' };
-      $('decisionChart').innerHTML = s.byDecision.map(r => {
-        const pct = Math.round((r.count / (s.emails.total||1)) * 100);
-        const color = colors[r.decision] || 'var(--accent)';
-        return `<div style="margin-bottom:12px;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px;">
-            <span style="color:${color}">${r.decision}</span>
-            <span style="color:var(--text2)">${r.count}</span>
-          </div>
-          <div style="background:var(--surface3);border-radius:3px;height:6px;">
-            <div style="width:${pct}%;height:100%;border-radius:3px;background:${color};"></div>
-          </div>
-        </div>`;
-      }).join('');
-    }
+    const dm={};
+    logs.forEach(l=>{const k=l.event_type==='auto_reply_sent'?'AUTO_REPLY':l.event_type==='queued_for_approval'?'NEEDS_APPROVAL':null;if(k)dm[k]=(dm[k]||0)+1;});
+    const dc={'AUTO_REPLY':'var(--green)','NEEDS_APPROVAL':'var(--yellow)','DELETE':'var(--red)'};
+    const dt2=Math.max(Object.values(dm).reduce((a,b)=>a+b,0),1);
+    $('decisionChart').innerHTML=Object.entries(dm).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
+      <div class="bar-row"><div class="bar-label">${k}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(v/dt2*100)}%;background:${dc[k]||'var(--accent)'}"></div></div><div class="bar-count">${v}</div></div>`).join('')||'<div class="empty"><div class="empty-text">No data yet</div></div>';
 
-    // Recent activity from audit log
-    const auditRes = await apiFetch('/audit-log?limit=8');
-    if (auditRes.success && auditRes.log.length) {
-      $('recentActivity').innerHTML = auditRes.log.map(l =>
-        `<div class="log-line">
-          <span class="log-time">${fmtDate(l.created_at)}</span>
-          <span class="log-event">${l.event_type}</span>
-          <span class="log-detail">${l.entity_type||''} ${l.details ? JSON.stringify(l.details).substring(0,80) : ''}</span>
-        </div>`
-      ).join('');
-    } else {
-      $('recentActivity').innerHTML = '<div class="empty-state" style="padding:40px;"><div class="icon">✅</div><p>No recent activity</p></div>';
-    }
-
-  } catch(e) {
-    console.error(e);
-    toast('Failed to load stats', 'error');
-  }
+    // Recent activity
+    const recent=logs.slice(0,8);
+    const ec=e=>e.includes('reply')?'var(--green)':e.includes('delete')||e.includes('spam')?'var(--red)':e.includes('queue')||e.includes('approval')?'var(--yellow)':'var(--text2)';
+    $('recentActivity').innerHTML=recent.length?recent.map(l=>{
+      let det='';try{const d=JSON.parse(l.details||'{}');det=`${d.sender||''} — "${(d.subject||'').substring(0,45)}"`;} catch{det=String(l.details||'').substring(0,80);}
+      return`<div class="log-row"><span class="log-time">${fmtDate(l.created_at)}</span><span class="log-event" style="color:${ec(l.event_type||'')}">${l.event_type||'—'}</span><span class="log-detail">${det}</span></div>`;
+    }).join(''):'<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">No recent activity</div></div>';
+  }catch(e){console.error(e);}
 }
 
-// ══ EMAILS ══════════════════════════════════════════
-async function loadEmails() {
-  const source = $('inboxSource')?.value || 'live';
-  const status = $('inboxFilter')?.value || '';
-  const isLive = source === 'live';
-
-  const url = isLive
-    ? `/emails?live=true&limit=50`
-    : `/emails?limit=50${status ? '&status=' + status : ''}`;
-
-  const label = $('inboxSourceLabel');
-  if (label) label.textContent = isLive
-    ? '📡 Showing live emails from Gmail inbox (unprocessed)'
-    : '🗄 Showing processed emails from database';
-
-  $('inboxTable').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text3);">Loading...</td></tr>';
-
-  try {
-    const d = await apiFetch(url);
-    const emails = d.emails || [];
-
-    if (!emails.length) {
-      $('inboxTable').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text3);">No emails found</td></tr>';
-      return;
-    }
-
-    $('inboxTable').innerHTML = emails.map(e => {
-      // Live emails have different field names
-      const senderEmail = e.sender_email || e.sender || '';
-      const senderName  = e.sender_name  || e.senderName || senderEmail.split('@')[0];
-      const subject     = e.subject || '(no subject)';
-      const intent      = e.intent  || (isLive ? '—' : null);
-      const tone        = e.tone    || (isLive ? '—' : null);
-      const priority    = e.priority;
-      const decision    = e.decision;
-      const confidence  = e.confidence;
-      const status_val  = e.status  || (isLive ? 'unread' : 'pending');
-      const received    = e.received_at || e.receivedAt;
-
-      return `<tr>
-        <td title="${senderEmail}"><span style="color:var(--text2)">${senderName.substring(0,22)}</span></td>
-        <td title="${subject}">${subject.substring(0,40)}</td>
-        <td>${intent && intent !== '—' ? badge(intentMeta, intent) : '<span style="color:var(--text3)">—</span>'}</td>
-        <td>${tone  && tone  !== '—' ? badge(toneMeta,   tone)   : '<span style="color:var(--text3)">—</span>'}</td>
-        <td>${priority ? `<span class="badge ${priority==='high'?'badge-red':priority==='medium'?'badge-yellow':'badge-gray'}">${priority}</span>` : '—'}</td>
-        <td>${decision ? badge(decisionMeta, decision) : '<span style="color:var(--text3)">—</span>'}</td>
-        <td>${confidence != null ? fmtConf(confidence) : '—'}</td>
-        <td><span class="badge ${status_val==='replied'?'badge-green':status_val==='trashed'?'badge-orange':status_val==='ignored'?'badge-gray':status_val==='unread'?'badge-blue':'badge-yellow'}">${status_val}</span></td>
-        <td style="color:var(--text3);font-size:10px;">${fmtDate(received)}</td>
-      </tr>`;
-    }).join('');
-  } catch(e) {
-    toast('Failed to load emails', 'error');
-  }
-}
-
-async function fetchLiveAndProcess() {
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = '⟳ Running...';
-  try {
-    const d = await apiFetch('/run-agent', { method: 'POST' });
-    if (d.success) {
-      const r = d.results || {};
-      toast(`Agent done — Auto: ${r.AUTO_REPLY||0} | Queued: ${r.NEEDS_APPROVAL||0} | Deleted: ${r.DELETE||0}`, 'success');
-      loadEmails();
-      loadStats();
-    } else {
-      toast('Agent error: ' + d.error, 'error');
-    }
-  } catch(e) {
-    toast('Failed: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '⟳ Fetch & Process';
-  }
-}
-
-// ══ APPROVALS ══════════════════════════════════════════
-async function loadApprovals() {
-  try {
-    const d = await apiFetch('/pending-approvals');
-    const items = d.items || [];
-    $('nav-badge-approvals').textContent = items.length;
-
-    if (!items.length) {
-      $('approvalsList').innerHTML = '<div class="empty-state" style="padding:60px;"><div class="icon">✅</div><p>No pending approvals — inbox is clear!</p></div>';
-      return;
-    }
-
-    $('approvalsList').innerHTML = items.map(item => `
-      <div class="email-detail" style="margin:16px;margin-bottom:0;" id="approval-${item.reply_id}">
-        <div class="email-meta">
-          <span style="font-family:var(--sans);font-weight:700;font-size:13px;">${item.subject || '(no subject)'}</span>
-          ${badge(intentMeta, item.intent)}
-          ${badge(toneMeta, item.tone)}
-          ${item.priority ? `<span class="badge ${item.priority==='high'?'badge-red':item.priority==='medium'?'badge-yellow':'badge-gray'}">${item.priority} priority</span>` : ''}
-          <span style="color:var(--text3);font-size:10px;margin-left:auto;">${fmtDate(item.queued_at)}</span>
+// Reminders
+async function loadReminders(){
+  const status=$('reminderFilter')?.value||'';
+  try{
+    const d=await api('/reminders'+(status?'?status='+status:''));
+    const items=d.reminders||[];
+    if(!items.length){$('remindersList').innerHTML='<div class="empty"><div class="empty-icon">🔔</div><div class="empty-text">No reminders yet</div></div>';return;}
+    $('remindersList').innerHTML=items.map(r=>{
+      const isDue=new Date(r.remind_at)<=new Date()&&r.status==='pending';
+      const icon=r.intent==='meeting_request'?'📅':r.intent==='task_request'?'📋':'💬';
+      const cls=isDue?'due':r.priority==='high'?'high-p':'';
+      return`<div class="reminder-card ${cls}">
+        <div class="reminder-icon">${icon}</div>
+        <div class="reminder-body">
+          <div class="reminder-label">${r.label}</div>
+          <div class="reminder-meta">📧 ${r.sender_name||r.sender} &nbsp;•&nbsp; ⏰ ${fmtDate(r.remind_at)} ${isDue?'<span class="badge badge-red">DUE NOW</span>':''}</div>
         </div>
-        <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">From: <strong style="color:var(--text)">${item.sender_name||item.sender_email}</strong> &lt;${item.sender_email}&gt; via ${item.provider}</div>
-        ${item.reasoning ? `<div style="font-size:11px;color:var(--text3);margin-bottom:10px;padding:8px 12px;background:var(--surface3);border-radius:5px;">🤖 ${item.reasoning}</div>` : ''}
-        <div style="margin-bottom:10px;">
-          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Original Email</div>
-          <div class="email-body-preview">${(item.body||'').substring(0,500)}</div>
+        <div class="reminder-actions">
+          ${r.status==='pending'?`<button class="btn" onclick="snoozeR('${r.id}')">💤 Snooze</button><button class="btn btn-danger" onclick="dismissR('${r.id}')">✓ Done</button>`:'<span class="badge badge-gray">Dismissed</span>'}
         </div>
-        <div style="margin-bottom:12px;">
-          <div style="font-size:10px;color:var(--accent2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">AI Generated Reply</div>
-          <textarea class="reply-edit" id="reply-text-${item.reply_id}">${item.generated_reply||''}</textarea>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-success" onclick="approveReply('${item.reply_id}')">✓ Approve &amp; Send</button>
-          <button class="btn btn-danger" onclick="rejectReply('${item.reply_id}')">✗ Reject</button>
-          <button class="btn btn-ghost" onclick="previewReply('${item.reply_id}')">👁 Preview</button>
-        </div>
-        <div id="conf-${item.reply_id}" style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11px;color:var(--text3);">
-          Confidence: ${fmtConf(item.confidence)}
-        </div>
-      </div>
-      <div style="height:1px;background:var(--border);margin:0 16px;"></div>
-    `).join('');
-
-  } catch(e) {
-    toast('Failed to load approvals', 'error');
-  }
-}
-
-async function approveReply(id) {
-  const editedText = $(`reply-text-${id}`)?.value;
-  try {
-    const d = await apiFetch(`/approve/${id}`, { method:'POST', body: { editedReply: editedText } });
-    if (d.success) {
-      toast('Reply approved and sent! ✉', 'success');
-      $(`approval-${id}`)?.closest('div.email-detail')?.remove();
-      loadApprovals();
-    } else throw new Error(d.error);
-  } catch(e) {
-    toast('Failed to approve: ' + e.message, 'error');
-  }
-}
-
-async function rejectReply(id) {
-  const reason = prompt('Rejection reason (optional):') || '';
-  try {
-    const d = await apiFetch(`/reject/${id}`, { method:'POST', body: { reason } });
-    if (d.success) {
-      toast('Reply rejected', 'info');
-      loadApprovals();
-    }
-  } catch(e) {
-    toast('Failed to reject', 'error');
-  }
-}
-
-function previewReply(id) {
-  const text = $(`reply-text-${id}`)?.value;
-  alert('PREVIEW:\n\n' + text);
-}
-
-// ══ PROCESS EMAIL ══════════════════════════════════════════
-function fillSampleEmail() {
-  const samples = [
-    { provider:'gmail', sender:'client@bigcorp.com', name:'Important Client', subject:'Meeting Request - Q4 Review', body:'Hi,\n\nI would like to schedule a meeting to discuss the Q4 performance review.\n\nCould we meet next Tuesday at 2pm or Wednesday at 3pm?\n\nBest regards' },
-    { provider:'imap', sender:'newsletter@marketingspam.com', name:'Marketing', subject:'🔥 HUGE SALE! 80% OFF Everything!!!', body:'CLICK NOW! Do not miss our BIGGEST SALE EVER! 80% off everything! Unsubscribe below.' },
-    { provider:'outlook', sender:'boss@yourcompany.com', name:'The Boss', subject:'Quick Question', body:'Hey, did you finish the monthly report? Can you send it over? Thanks!' },
-  ];
-  const s = samples[Math.floor(Math.random() * samples.length)];
-  $('p-provider').value  = s.provider;
-  $('p-sender').value    = s.sender;
-  $('p-name').value      = s.name;
-  $('p-subject').value   = s.subject;
-  $('p-body').value      = s.body;
-  $('p-msgid').value     = `msg-${Date.now()}@example.com`;
-}
-
-async function processEmail() {
-  const payload = {
-    provider:     $('p-provider').value,
-    messageId:    $('p-msgid').value || `msg-${Date.now()}@manual`,
-    sender:       $('p-sender').value,
-    senderName:   $('p-name').value,
-    subject:      $('p-subject').value,
-    body:         $('p-body').value,
-  };
-
-  if (!payload.sender) { toast('Sender email is required', 'error'); return; }
-
-  const btn = document.querySelector('#page-compose .btn-primary');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Processing...';
-
-  try {
-    const d = await apiFetch('/process-email', { method:'POST', body: payload });
-    $('processResult').style.display = '';
-
-    if (d.success && d.result) {
-      const r = d.result;
-      const decisionColors = { AUTO_REPLY:'var(--green)', NEEDS_APPROVAL:'var(--yellow)', IGNORE:'var(--text2)', DELETE:'var(--red)' };
-      const dc = decisionColors[r.decision] || 'var(--text)';
-
-      $('processResultBody').innerHTML = `
-        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:20px;">
-          <div style="flex:1;min-width:200px;padding:16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Decision</div>
-            <div style="font-family:var(--sans);font-size:22px;font-weight:800;color:${dc};">${r.decision||'—'}</div>
-          </div>
-          <div style="flex:1;min-width:200px;padding:16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Intent</div>
-            <div style="font-family:var(--sans);font-size:22px;font-weight:800;">${(r.intent||'—').replace('_',' ')}</div>
-          </div>
-          <div style="flex:1;min-width:200px;padding:16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Confidence</div>
-            <div style="font-family:var(--sans);font-size:22px;font-weight:800;">${Math.round((r.confidence||0)*100)}%</div>
-          </div>
-          <div style="flex:1;min-width:200px;padding:16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
-            <div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;">Outcome</div>
-            <div style="font-family:var(--sans);font-size:16px;font-weight:700;color:var(--accent2);">${r.outcome?.result||'—'}</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-          ${badge(toneMeta, r.tone)} ${badge(intentMeta, r.intent)}
-          <span class="badge ${r.priority==='high'?'badge-red':r.priority==='medium'?'badge-yellow':'badge-gray'}">${r.priority||'?'} priority</span>
-        </div>
-        ${r.outcome?.result === 'queued_for_approval' ? '<div style="margin-top:16px;padding:10px 14px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.2);border-radius:6px;font-size:12px;color:var(--yellow);">⏳ Reply queued — check the Approvals tab to review and send.</div>' : ''}
-        ${r.outcome?.result === 'auto_sent' ? '<div style="margin-top:16px;padding:10px 14px;background:rgba(34,211,160,0.1);border:1px solid rgba(34,211,160,0.2);border-radius:6px;font-size:12px;color:var(--green);">✅ Auto-reply sent successfully!</div>' : ''}
-      `;
-      toast(`Decision: ${r.decision} (${Math.round((r.confidence||0)*100)}% confidence)`, r.decision==='DELETE'?'error':r.decision==='AUTO_REPLY'?'success':'info');
-    } else {
-      $('processResultBody').innerHTML = `<div style="color:var(--red);">Error: ${d.error || 'Unknown error'}</div>`;
-      toast('Processing failed', 'error');
-    }
-  } catch(e) {
-    toast('API error: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '⚙ Process Email';
-  }
-}
-
-// ══ SYNC ALL ══════════════════════════════════════════
-async function runProcessAll() {
-  const btn = $('syncBtn');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Syncing...';
-  try {
-    const d = await apiFetch('/process-all', { method:'POST' });
-    if (d.success) {
-      const r = d.result;
-      toast(`Sync done: ${r.processed} processed, ${r.queued} queued, ${r.deleted} cleaned`, 'success');
-      loadStats();
-    }
-  } catch(e) {
-    toast('Sync failed: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '⟳ Sync Now';
-  }
-}
-
-// ══ CLEANUP ══════════════════════════════════════════
-async function loadCleanupStats() {
-  try {
-    const d = await apiFetch('/stats');
-    const c = d.stats?.cleanup || {};
-    $('cs-total').textContent   = c.total_cleaned || 0;
-    $('cs-trashed').textContent = c.trashed || 0;
-    $('cs-moved').textContent   = c.moved || 0;
-    $('cs-recovered').textContent = c.recovered || 0;
-  } catch {}
-}
-
-async function loadDeletionLog() {
-  try {
-    const d = await apiFetch('/deletion-log');
-    const log = d.log || [];
-    if (!log.length) {
-      $('deletionLogTable').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3);">No deleted emails</td></tr>';
-      return;
-    }
-    $('deletionLogTable').innerHTML = log.map(l => `
-      <tr>
-        <td title="${l.subject||''}">${(l.subject||'(no subject)').substring(0,40)}</td>
-        <td style="color:var(--text2)">${l.sender_email||'—'}</td>
-        <td style="color:var(--text3);font-size:11px;">${(l.reason||'').substring(0,50)}</td>
-        <td><span class="badge badge-orange">${l.action||'—'}</span></td>
-        <td>${fmtConf(l.confidence)}</td>
-        <td style="color:var(--text3);font-size:10px;">${fmtDate(l.deleted_at)}</td>
-        <td>${!l.recovered ? `<button class="btn btn-ghost" style="font-size:10px;padding:4px 8px;" onclick="recoverEmail('${l.id}')">↩ Recover</button>` : '<span style="color:var(--green);font-size:10px;">Recovered</span>'}</td>
-      </tr>
-    `).join('');
-  } catch(e) {
-    toast('Failed to load deletion log', 'error');
-  }
-}
-
-async function runCleanup() {
-  if (!confirm('Run inbox cleanup? This will trash/move spam and promotional emails with >90% confidence.')) return;
-  try {
-    const d = await apiFetch('/cleanup', { method:'POST' });
-    if (d.success) {
-      const r = d.result;
-      toast(`Cleanup: ${r.trashed} trashed, ${r.moved} moved`, 'success');
-      loadCleanupStats(); loadDeletionLog();
-    }
-  } catch(e) {
-    toast('Cleanup failed', 'error');
-  }
-}
-
-async function recoverEmail(id) {
-  try {
-    const d = await apiFetch(`/recover/${id}`, { method:'POST' });
-    if (d.success) { toast('Email marked as recovered', 'success'); loadDeletionLog(); }
-  } catch(e) { toast('Recovery failed', 'error'); }
-}
-
-// ══ CONTACTS ══════════════════════════════════════════
-async function loadContacts() {
-  try {
-    const d = await apiFetch('/contacts');
-    const contacts = d.contacts || [];
-    const trustClasses = { trusted:'badge-green', known:'badge-blue', blocked:'badge-red' };
-    if (!contacts.length) {
-      $('contactsTable').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3);">No contacts yet</td></tr>';
-      return;
-    }
-    $('contactsTable').innerHTML = contacts.map(c => `
-      <tr id="contact-row-${encodeURIComponent(c.email)}">
-        <td>${c.email}</td>
-        <td>${c.name||'—'}</td>
-        <td style="color:var(--text3)">${c.domain||'—'}</td>
-        <td>
-          <select onchange="updateContactTrust('${c.email}', this.value)"
-            style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:5px;font-family:var(--mono);font-size:11px;">
-            <option value="known"    ${c.trust_level==='known'   ?'selected':''}>Known</option>
-            <option value="trusted"  ${c.trust_level==='trusted' ?'selected':''}>Trusted</option>
-            <option value="blocked"  ${c.trust_level==='blocked' ?'selected':''}>Blocked</option>
-          </select>
-        </td>
-        <td style="color:var(--text2)">${c.interaction_count||0}</td>
-        <td style="color:var(--text3);font-size:10px;">${fmtDate(c.created_at)}</td>
-        <td>
-          <button class="btn btn-danger" style="font-size:10px;padding:4px 10px;"
-            onclick="deleteContact('${c.email}')">🗑 Delete</button>
-        </td>
-      </tr>
-    `).join('');
-  } catch(e) { toast('Failed to load contacts', 'error'); }
-}
-
-async function deleteContact(email) {
-  if (!confirm('Delete contact ' + email + '?')) return;
-  try {
-    const d = await apiFetch('/contacts/' + encodeURIComponent(email), { method: 'DELETE' });
-    if (d.success) {
-      toast('Contact deleted', 'success');
-      loadContacts();
-    } else throw new Error(d.error);
-  } catch(e) { toast('Failed to delete: ' + e.message, 'error'); }
-}
-
-async function updateContactTrust(email, trust_level) {
-  try {
-    const d = await apiFetch('/contacts/' + encodeURIComponent(email), {
-      method: 'PATCH',
-      body: { trust_level },
-    });
-    if (d.success) toast(`${email} → ${trust_level}`, 'success');
-    else throw new Error(d.error);
-  } catch(e) { toast('Failed to update trust level', 'error'); }
-}
-
-async function addContact() {
-  const email = $('c-email').value;
-  const name  = $('c-name').value;
-  const trust = $('c-trust').value;
-  if (!email) { toast('Email is required', 'error'); return; }
-  try {
-    const d = await apiFetch('/contacts', { method:'POST', body: { email, name, trustLevel: trust } });
-    if (d.success) {
-      toast(`Contact ${email} saved!`, 'success');
-      $('c-email').value = ''; $('c-name').value = '';
-      loadContacts();
-    }
-  } catch(e) { toast('Failed to add contact', 'error'); }
-}
-
-// ══ AUDIT LOG ══════════════════════════════════════════
-async function loadAuditLog() {
-  const el = $('auditLogContent');
-  if (el) el.innerHTML = '<div class="empty-state" style="padding:40px;"><div class="icon">⏳</div><p>Loading...</p></div>';
-  try {
-    const d = await apiFetch('/audit-log?limit=100');
-    if (!el) return;
-    const log = d.log || [];
-    if (!log.length) {
-      el.innerHTML = '<div class="empty-state" style="padding:60px;"><div class="icon">✅</div><p>No audit events yet — agent actions will appear here</p></div>';
-      return;
-    }
-    el.innerHTML = log.map(l => {
-      const details = l.details ? JSON.stringify(l.details).substring(0,120) : '';
-      const evtColor = l.event_type?.includes('reply') ? 'var(--green)'
-                     : l.event_type?.includes('delete') ? 'var(--red)'
-                     : l.event_type?.includes('reject') ? 'var(--orange)'
-                     : 'var(--accent2)';
-      return `<div class="log-line">
-        <span class="log-time">${fmtDate(l.created_at)}</span>
-        <span class="log-event" style="color:${evtColor}">${l.event_type || '—'}</span>
-        <span style="color:var(--text3);font-size:10px;">${l.entity_type||''}</span>
-        <span class="log-detail">${details}</span>
       </div>`;
     }).join('');
-  } catch(e) {
-    console.error('Audit log error:', e);
-    if (el) el.innerHTML = `<div style="padding:20px;color:var(--red);">Failed to load audit log: ${e.message}</div>`;
-    toast('Failed to load audit log', 'error');
-  }
+  }catch(e){toast('Failed to load reminders','error');}
+}
+async function dismissR(id){try{const d=await api('/reminders/'+id+'/dismiss',{method:'POST'});if(d.success){toast('Reminder dismissed ✓');loadReminders();updateBadges();}else toast(d.error||'Failed','error');}catch(e){toast('Error','error');}}
+async function snoozeR(id){try{const d=await api('/reminders/'+id+'/snooze',{method:'POST'});if(d.success){toast('Snoozed 1 hour 💤');loadReminders();}else toast(d.error||'Failed','error');}catch(e){toast('Error','error');}}
+
+// Approvals
+async function loadApprovals(){
+  try{
+    const d=await api('/pending-approvals');const items=d.items||[];
+    if(!items.length){$('approvalsList').innerHTML='<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">All caught up! No pending approvals.</div></div>';const b=$('badge-approvals');b.style.display='none';return;}
+    const b=$('badge-approvals');b.textContent=items.length;b.style.display='';
+    $('approvalsList').innerHTML=items.map(item=>`
+      <div class="approval-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+          <div><div style="font-size:13px;font-weight:600">${item.subject||'(no subject)'}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:3px">From: ${item.sender} &nbsp;•&nbsp; Intent: ${item.intent||'—'} &nbsp;•&nbsp; Reason: ${item.reason||'—'}</div></div>
+          <span class="badge badge-yellow">Pending</span>
+        </div>
+        <div class="reply-preview">${item.suggested_reply||'No reply generated'}</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary" onclick="approveR('${item.id}')">✓ Approve & Send</button>
+          <button class="btn btn-danger" onclick="rejectR('${item.id}')">✗ Reject</button>
+        </div>
+      </div>`).join('');
+  }catch(e){toast('Failed','error');}
+}
+async function approveR(id){try{const d=await api('/approve/'+id,{method:'POST'});if(d.success){toast('Reply sent ✓');loadApprovals();loadDashboard();}else toast(d.error||'Failed','error');}catch{toast('Error','error');}}
+async function rejectR(id){try{const d=await api('/reject/'+id,{method:'POST'});if(d.success){toast('Rejected');loadApprovals();}else toast(d.error||'Failed','error');}catch{toast('Error','error');}}
+
+// Contacts
+async function loadContacts(){
+  try{
+    const d=await api('/contacts');const contacts=d.contacts||[];
+    if(!contacts.length){$('contactsList').innerHTML='<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">No contacts yet</div></div>';return;}
+    const tc={trusted:'badge-green',known:'badge-blue',blocked:'badge-red',unknown:'badge-gray'};
+    const cols=['#7c6fff','#22c55e','#3b82f6','#f59e0b','#ef4444','#a855f7'];
+    $('contactsList').innerHTML=contacts.map(c=>{
+      const init=(c.name||c.email||'?')[0].toUpperCase();
+      const col=cols[init.charCodeAt(0)%cols.length];
+      return`<div class="contact-row">
+        <div class="avatar" style="background:${col}">${init}</div>
+        <div class="contact-info"><div class="contact-name">${c.name||'—'}</div><div class="contact-email">${c.email} &nbsp;•&nbsp; ${c.interaction_count||0} interactions</div></div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="badge ${tc[c.trust_level]||'badge-gray'}">${c.trust_level||'unknown'}</span>
+          <select class="trust-select" onchange="updateTrust('${c.email}',this.value)">
+            <option value="known" ${c.trust_level==='known'?'selected':''}>Known</option>
+            <option value="trusted" ${c.trust_level==='trusted'?'selected':''}>Trusted</option>
+            <option value="blocked" ${c.trust_level==='blocked'?'selected':''}>Blocked</option>
+          </select>
+          <button class="btn btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteContact('${c.email}')">🗑 Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){toast('Failed','error');}
+}
+async function addContact(){
+  const email=$('newEmail').value.trim();const name=$('newName').value.trim();
+  if(!email){toast('Enter an email','error');return;}
+  try{
+    const d=await api('/contacts',{method:'POST',body:{email,name,isTrusted:true}});
+    if(d.success||d.contact){toast('Contact added ✓');$('newEmail').value='';$('newName').value='';loadContacts();}
+    else toast(d.error||'Failed','error');
+  }catch(e){toast('Error: '+e.message,'error');}
+}
+async function deleteContact(email){
+  if(!confirm('Delete '+email+'?'))return;
+  try{
+    const r=await fetch(API+'/contacts/'+encodeURIComponent(email),{method:'DELETE',headers:{'Content-Type':'application/json'}});
+    const d=await r.json();
+    if(d.success){toast('Deleted ✓');loadContacts();}else toast(d.error||'Failed','error');
+  }catch(e){toast('Error: '+e.message,'error');}
+}
+async function updateTrust(email,trust_level){
+  try{
+    const r=await fetch(API+'/contacts/'+encodeURIComponent(email),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({trust_level})});
+    const d=await r.json();
+    if(d.success)toast('Updated to '+trust_level+' ✓');else toast(d.error||'Failed','error');
+    loadContacts();
+  }catch{toast('Error','error');}
 }
 
-// ══ INIT ══════════════════════════════════════════
-loadStats();
+// Audit
+async function loadAudit(){
+  $('auditList').innerHTML='<div class="empty"><div class="empty-icon">⏳</div><div class="empty-text">Loading...</div></div>';
+  try{
+    const d=await api('/audit-log?limit=100');const logs=d.log||[];
+    if(!logs.length){$('auditList').innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No audit events yet</div></div>';return;}
+    const ec=e=>e.includes('reply')?'var(--green)':e.includes('delete')||e.includes('spam')?'var(--red)':e.includes('queue')||e.includes('approval')?'var(--yellow)':'var(--text2)';
+    $('auditList').innerHTML=logs.map(l=>{
+      let det='';
+      try{const d=JSON.parse(l.details||'{}');det=[d.sender,d.subject?`"${d.subject.substring(0,45)}"`:null,d.reason||null].filter(Boolean).join(' — ');}catch{det=String(l.details||'').substring(0,100);}
+      return`<div class="log-row"><span class="log-time">${fmtDate(l.created_at)}</span><span class="log-event" style="color:${ec(l.event_type||'')}">${l.event_type||'—'}</span><span class="log-detail">${det}</span></div>`;
+    }).join('');
+  }catch(e){$('auditList').innerHTML=`<div class="empty"><div class="empty-text">Error: ${e.message}</div></div>`;}
+}
+
+// Init
+loadDashboard();
+updateBadges();
+setInterval(updateBadges,30000);
+setInterval(loadDashboard,60000);
 </script>
 </body>
 </html>
