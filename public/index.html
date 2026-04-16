@@ -521,7 +521,6 @@
     <span id="statusText">System Active</span>
     <span>|</span>
     <span id="topClock"></span>
-    <button class="btn btn-ghost" onclick="toggleTheme()" id="themeToggle" title="Toggle light/dark mode" style="font-size:15px;padding:4px 10px;">🌙</button>
     <button class="btn btn-ghost" onclick="runProcessAll()" id="syncBtn">⟳ Sync Now</button>
   </div>
 </div>
@@ -850,23 +849,6 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
-// ══ THEME ══════════════════════════════════════════
-function toggleTheme() {
-  const isLight = document.body.classList.toggle('light-mode');
-  const btn = $('themeToggle');
-  if (btn) btn.textContent = isLight ? '☀️' : '🌙';
-  localStorage.setItem('aiagent_theme', isLight ? 'light' : 'dark');
-}
-(function() {
-  if (localStorage.getItem('aiagent_theme') === 'light') {
-    document.body.classList.add('light-mode');
-    window.addEventListener('DOMContentLoaded', () => {
-      const btn = $('themeToggle');
-      if (btn) btn.textContent = '☀️';
-    });
-  }
-})();
-
 // ══ STATS ══════════════════════════════════════════
 async function loadStats() {
   try {
@@ -874,7 +856,7 @@ async function loadStats() {
     if (!d.success) return;
     const s = d.stats;
 
-    $('st-autoreplied').textContent = s.emails.auto_replied || s.emails.replied || 0;
+    $('st-autoreplied').textContent = s.emails.replied || 0;
     $('st-deleted').textContent     = s.emails.deleted || 0;
     const approvalPending = s.approvals?.pending_count || 0;
     $('st-approvals').textContent   = approvalPending;
