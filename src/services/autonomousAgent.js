@@ -312,8 +312,13 @@ async function processEmail(gmail, email) {
       try {
         await query(
           `INSERT INTO audit_log (event_type, entity_type, details)
-           VALUES ('auto_reply_sent', 'email', $1)`,
-          [JSON.stringify({ sender: email.sender, subject: email.subject, intent: analysis.intent, confidence: analysis.confidence })]
+          VALUES ('auto_reply_sent', 'email', $1)`,
+          [JSON.stringify({
+          sender: email.sender, subject: email.subject,
+          intent: analysis.intent, tone: analysis.tone,
+          priority: analysis.priority, decision: 'AUTO_REPLY',
+          confidence: analysis.confidence
+          })]
         );
       } catch { /* non-critical */ }
       logger.info(`AUTO_REPLY sent | intent=${analysis.intent} conf=${analysis.confidence}`, logCtx);
@@ -336,10 +341,15 @@ async function processEmail(gmail, email) {
   await markEmailProcessed(email.messageId, 'NEEDS_APPROVAL');
   // Log to audit trail
   try {
-    await query(
-      `INSERT INTO audit_log (event_type, entity_type, details)
-       VALUES ('queued_for_approval', 'email', $1)`,
-      [JSON.stringify({ sender: email.sender, subject: email.subject, reason: queueReason })]
+      await query(
+        `INSERT INTO audit_log (event_type, entity_type, details)
+         VALUES ('queued_for_approval', 'email', $1)`,
+        [JSON.stringify({
+        sender: email.sender, subject: email.subject,
+        intent: analysis.intent, tone: analysis.tone,
+        priority: analysis.priority, decision: 'NEEDS_APPROVAL',
+        confidence: analysis.confidence, reason: queueReason
+        })]
     );
   } catch { /* non-critical */ }
   logger.info(`NEEDS_APPROVAL — queued for review | reason: ${queueReason}`, logCtx);

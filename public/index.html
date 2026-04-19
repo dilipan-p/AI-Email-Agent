@@ -368,19 +368,29 @@ async function loadApprovals(){
     const d=await api('/pending-approvals');const items=d.items||[];
     if(!items.length){$('approvalsList').innerHTML='<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">All caught up! No pending approvals.</div></div>';const b=$('badge-approvals');b.style.display='none';return;}
     const b=$('badge-approvals');b.textContent=items.length;b.style.display='';
-    $('approvalsList').innerHTML=items.map(item=>`
-      <div class="approval-card">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-          <div><div style="font-size:13px;font-weight:600">${item.subject||'(no subject)'}</div>
-          <div style="font-size:11px;color:var(--text3);margin-top:3px">From: ${item.sender} &nbsp;•&nbsp; Intent: ${item.intent||'—'} &nbsp;•&nbsp; Reason: ${item.reason||'—'}</div></div>
-          <span class="badge badge-yellow">Pending</span>
+    $('approvalsList').innerHTML=items.map(item=>{
+      const rid = item.reply_id||item.id||'';
+      const intentBadge = item.intent ? `<span class="badge badge-blue">${item.intent.replace('_',' ')}</span>` : '';
+      const toneBadge = item.tone ? `<span class="badge badge-gray">${item.tone}</span>` : '';
+      const priColor = item.priority==='high'?'badge-red':item.priority==='medium'?'badge-yellow':'badge-gray';
+      const priBadge = item.priority ? `<span class="badge ${priColor}">${item.priority}</span>` : '';
+      const conf = item.confidence ? `<span class="badge badge-gray">${Math.round(item.confidence*100)}%</span>` : '';
+      return`<div class="approval-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+          <div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:6px">${item.subject||'(no subject)'}</div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:6px">From: ${item.sender_email||item.sender||'unknown'} (${item.sender_name||''})</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">${intentBadge}${toneBadge}${priBadge}${conf}</div>
+          </div>
+          <span class="badge badge-yellow">Pending Review</span>
         </div>
-        <div class="reply-preview">${item.suggested_reply||'No reply generated'}</div>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button class="btn btn-primary" onclick="approveR('${item.id}')">✓ Approve & Send</button>
-          <button class="btn btn-danger" onclick="rejectR('${item.id}')">✗ Reject</button>
+        <div class="reply-preview">${item.generated_reply||item.suggested_reply||'No reply generated'}</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-primary" onclick="approveR('${rid}')">✓ Approve & Send</button>
+          <button class="btn btn-danger" onclick="rejectR('${rid}')">✗ Reject</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }catch(e){toast('Failed','error');}
 }
 async function approveR(id){try{const d=await api('/approve/'+id,{method:'POST'});if(d.success){toast('Reply sent ✓');loadApprovals();loadDashboard();}else toast(d.error||'Failed','error');}catch{toast('Error','error');}}
@@ -444,11 +454,37 @@ async function loadAudit(){
   try{
     const d=await api('/audit-log?limit=100');const logs=d.log||[];
     if(!logs.length){$('auditList').innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No audit events yet</div></div>';return;}
-    const ec=e=>e.includes('reply')?'var(--green)':e.includes('delete')||e.includes('spam')?'var(--red)':e.includes('queue')||e.includes('approval')?'var(--yellow)':'var(--text2)';
-    $('auditList').innerHTML=logs.map(l=>{
-      let det='';
-      try{const d=JSON.parse(l.details||'{}');det=[d.sender,d.subject?`"${d.subject.substring(0,45)}"`:null,d.reason||null].filter(Boolean).join(' — ');}catch{det=String(l.details||'').substring(0,100);}
-      return`<div class="log-row"><span class="log-time">${fmtDate(l.created_at)}</span><span class="log-event" style="color:${ec(l.event_type||'')}">${l.event_type||'—'}</span><span class="log-detail">${det}</span></div>`;
+    const evtColor=e=>e.includes('reply_sent')||e.includes('auto_reply')?'var(--green)':e.includes('delete')||e.includes('spam')?'var(--red)':e.includes('queue')||e.includes('approval')||e.includes('reject')?'var(--yellow)':'var(--text2)';
+    const ib={'meeting_request':'badge-blue','question':'badge-purple','task_request':'badge-yellow','personal':'badge-green','promotional':'badge-orange','spam':'badge-red','other':'badge-gray'};
+    const tb={'angry':'badge-red','negative':'badge-orange','urgent':'badge-yellow','positive':'badge-green','formal':'badge-blue','neutral':'badge-gray','informal':'badge-gray'};
+    const pb={'high':'badge-red','medium':'badge-yellow','low':'badge-green'};
+    const db={'AUTO_REPLY':'badge-green','NEEDS_APPROVAL':'badge-yellow','DELETE':'badge-red','IGNORE':'badge-gray'};
+    const COL='110px 150px 110px 80px 75px 120px 60px 1fr';
+    const hdr=k=>`<span style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.6px">${k}</span>`;
+    $('auditList').innerHTML=`
+      <div style="display:grid;grid-template-columns:${COL};padding:8px 14px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);">
+        ${['Time','Event','Intent','Tone','Priority','Decision','Conf','Sender — Subject'].map(hdr).join('')}
+      </div>` + logs.map(l=>{
+      // Fields come pre-extracted from the API — no JSON parsing needed
+      const intent   = l.intent    || '';
+      const tone     = l.tone      || '';
+      const priority = l.priority  || '';
+      const decision = l.decision  || '';
+      const rawConf  = l.confidence;
+      const conf     = rawConf != null && rawConf !== '' ? (parseFloat(rawConf) <= 1 ? Math.round(parseFloat(rawConf)*100)+'%' : Math.round(parseFloat(rawConf))+'%') : '—';
+      const sender   = l.sender  || '';
+      const subject  = l.subject ? `— "${l.subject.substring(0,38)}"` : '';
+      const detail   = (sender + ' ' + subject).trim() || l.reason || '—';
+      return`<div style="display:grid;grid-template-columns:${COL};padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.03);font-size:11px;align-items:center;" onmouseover="this.style.background='rgba(255,255,255,.02)'" onmouseout="this.style.background=''">
+        <span style="color:var(--text3);font-family:var(--mono);font-size:10px">${fmtDate(l.created_at)}</span>
+        <span style="font-weight:600;font-family:var(--mono);font-size:10px;color:${evtColor(l.event_type||'')}">${l.event_type||'—'}</span>
+        <span>${intent?`<span class="badge ${ib[intent]||'badge-gray'}" style="font-size:9px">${intent.replace(/_/g,' ')}</span>`:'<span style="color:var(--text3)">—</span>'}</span>
+        <span>${tone?`<span class="badge ${tb[tone]||'badge-gray'}" style="font-size:9px">${tone}</span>`:'<span style="color:var(--text3)">—</span>'}</span>
+        <span>${priority?`<span class="badge ${pb[priority]||'badge-gray'}" style="font-size:9px">${priority}</span>`:'<span style="color:var(--text3)">—</span>'}</span>
+        <span>${decision?`<span class="badge ${db[decision]||'badge-gray'}" style="font-size:9px">${decision}</span>`:'<span style="color:var(--text3)">—</span>'}</span>
+        <span style="font-family:var(--mono);color:var(--text2);font-size:10px">${conf}</span>
+        <span style="color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${detail}</span>
+      </div>`;
     }).join('');
   }catch(e){$('auditList').innerHTML=`<div class="empty"><div class="empty-text">Error: ${e.message}</div></div>`;}
 }

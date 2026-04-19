@@ -221,43 +221,34 @@ router.get('/pending-approvals',
 // ============================================================
 // POST /approve/:id - Approve and send a reply
 // ============================================================
-router.post('/approve/:id',
-  param('id').isUUID(),
-  body('approvedBy').optional().isString(),
-  body('editedReply').optional().isString(),
-  validate,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { approvedBy = 'human', editedReply } = req.body;
-      const result = await approvalService.approveReply(id, approvedBy, editedReply);
-      res.json({ success: true, result });
-    } catch (err) {
-      logger.error(`POST /approve/${req.params.id} error`, { error: err.message });
-      res.status(500).json({ error: err.message });
-    }
+router.post('/approve/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { approvedBy = 'human', editedReply } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    const result = await approvalService.approveReply(id, approvedBy, editedReply);
+    res.json({ success: true, result });
+  } catch (err) {
+    logger.error(`POST /approve/${req.params.id} error`, { error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
-);
+});
 
 // ============================================================
 // POST /reject/:id - Reject a queued reply
 // ============================================================
-router.post('/reject/:id',
-  param('id').isUUID(),
-  body('reason').optional().isString(),
-  validate,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { reason = '', rejectedBy = 'human' } = req.body;
-      const result = await approvalService.rejectReply(id, rejectedBy, reason);
-      res.json({ success: true, result });
-    } catch (err) {
-      logger.error(`POST /reject/${req.params.id} error`, { error: err.message });
-      res.status(500).json({ error: err.message });
-    }
+router.post('/reject/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason = '', rejectedBy = 'human' } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    const result = await approvalService.rejectReply(id, rejectedBy, reason);
+    res.json({ success: true, result });
+  } catch (err) {
+    logger.error(`POST /reject/${req.params.id} error`, { error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
-);
+});
 
 // ============================================================
 // POST /cleanup - Trigger inbox cleaning
@@ -410,13 +401,60 @@ router.post('/contacts',
 // ============================================================
 router.get('/audit-log', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 50;
-    const result = await query(
-      'SELECT * FROM audit_log ORDER BY created_at DESC LIMIT $1',
-      [limit]
-    );
-    res.json({ success: true, log: result.rows });
+    const limit = parseInt(req.query.limit) || 200;
+    // Join with email_analyses to enrich audit log with intent/tone/priority/decision
+    const result = await query(`
+      SELECT
+        al.id, al.event_type, al.entity_type, al.created_at,
+        al.details,
+        -- Pull from details JSON first
+        al.details->>'intent'     AS d_intent,
+        al.details->>'tone'       AS d_tone,
+        al.details->>'priority'   AS d_priority,
+        al.details->>'decision'   AS d_decision,
+        al.details->>'confidence' AS d_confidence,
+        al.details->>'sender'     AS d_sender,
+        al.details->>'subject'    AS d_subject,
+        al.details->>'reason'     AS d_reason,
+        -- Enrich from email_analyses by matching sender + subject
+        ea.intent      AS ea_intent,
+        ea.tone        AS ea_tone,
+        ea.priority    AS ea_priority,
+        ea.decision    AS ea_decision,
+        ea.confidence  AS ea_confidence
+      FROM audit_log al
+      LEFT JOIN emails e
+        ON LOWER(e.sender_email) = LOWER(al.details->>'sender')
+        AND e.subject = al.details->>'subject'
+      LEFT JOIN email_analyses ea
+        ON ea.email_id = e.id
+      ORDER BY al.created_at DESC
+      LIMIT $1
+    `, [limit]);
+
+    // Merge: prefer details JSON, fallback to email_analyses join
+    const log = result.rows.map(row => {
+      let details = {};
+      try { details = typeof row.details === 'object' ? row.details : JSON.parse(row.details || '{}'); } catch {}
+      return {
+        id:         row.id,
+        event_type: row.event_type,
+        entity_type:row.entity_type,
+        created_at: row.created_at,
+        intent:     row.d_intent     || row.ea_intent                     || details.intent     || null,
+        tone:       row.d_tone       || row.ea_tone                       || details.tone       || null,
+        priority:   row.d_priority   || row.ea_priority                   || details.priority   || null,
+        decision:   row.d_decision   || row.ea_decision                   || details.decision   || details.suggestedDecision || null,
+        confidence: row.d_confidence || (row.ea_confidence != null ? String(row.ea_confidence) : null) || details.confidence || null,
+        sender:     row.d_sender     || details.sender  || details.to     || null,
+        subject:    row.d_subject    || details.subject                   || null,
+        reason:     row.d_reason     || details.reason                    || null,
+      };
+    });
+
+    res.json({ success: true, log });
   } catch (err) {
+    logger.error('GET /audit-log error', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
