@@ -1,194 +1,352 @@
 // src/services/meetingScheduler.js
-// Rule-based meeting scheduler — extracts meeting intent and finds available slots.
-// No OpenAI required. Integrates with Google Calendar when credentials are present.
+// Rule-based meeting scheduler — IST-safe throughout.
+// All dates and times are computed in Asia/Kolkata (UTC+05:30).
+// No server timezone dependency — works correctly on any UTC/cloud server.
 
 'use strict';
 
 const logger = require('../config/logger');
 
-// ─── Time slot generator ──────────────────────────────────────────────────────
+// ─── IST helpers ──────────────────────────────────────────────────────────────
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // 5h 30m in milliseconds
 
 /**
- * Generate N available working-hours slots starting from tomorrow.
- * Slots are 30 or 60 min based on detected duration hint.
+ * Get the current time as an IST-aware object.
+ */
+function nowIST() {
+  return utcToIST(new Date());
+}
+
+/**
+ * Convert any UTC Date to IST fields.
+ * Returns { year, month (1-12), day, hours, minutes, dayOfWeek (0=Sun) }
+ */
+function utcToIST(date) {
+  const ist = new Date(date.getTime() + IST_OFFSET_MS);
+  return {
+    year:      ist.getUTCFullYear(),
+    month:     ist.getUTCMonth() + 1,
+    day:       ist.getUTCDate(),
+    hours:     ist.getUTCHours(),
+    minutes:   ist.getUTCMinutes(),
+    dayOfWeek: ist.getUTCDay(),
+  };
+}
+
+/**
+ * Build an ISO 8601 string with explicit +05:30 offset.
+ * This is the ONLY correct way to pass IST times to Google Calendar.
+ * e.g. buildISTString(2026, 4, 25, 17, 0) => "2026-04-25T17:00:00+05:30"
+ */
+function buildISTString(year, month, day, hours, mins) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${year}-${pad(month)}-${pad(day)}T${pad(hours)}:${pad(mins)}:00+05:30`;
+}
+
+/**
+ * Convert IST components to a UTC Date (for calendar API comparisons).
+ */
+function istToUTC(year, month, day, hours, mins) {
+  return new Date(Date.UTC(year, month - 1, day, hours, mins) - IST_OFFSET_MS);
+}
+
+/**
+ * Advance an IST { year, month, day } by N days.
+ */
+function addDaysIST(year, month, day, n) {
+  const utc = istToUTC(year, month, day, 0, 0);
+  utc.setUTCDate(utc.getUTCDate() + n);
+  const ist = utcToIST(utc);
+  return { year: ist.year, month: ist.month, day: ist.day };
+}
+
+/**
+ * Get day-of-week (0=Sun) for an IST date.
+ */
+function dayOfWeekIST(year, month, day) {
+  return utcToIST(istToUTC(year, month, day, 0, 0)).dayOfWeek;
+}
+
+/**
+ * Format an IST datetime for display in emails.
+ * e.g. "Friday, 25 April 2026 at 5:00 PM IST"
+ */
+function formatISTDisplay(year, month, day, hours, mins) {
+  const isoStr = buildISTString(year, month, day, hours, mins);
+  const date   = new Date(isoStr);
+  return date.toLocaleString('en-IN', {
+    weekday:  'long',
+    year:     'numeric',
+    month:    'long',
+    day:      'numeric',
+    hour:     '2-digit',
+    minute:   '2-digit',
+    hour12:   true,
+    timeZone: 'Asia/Kolkata',
+  }) + ' IST';
+}
+
+/**
+ * Format a slot label for display.
+ * e.g. "Friday, 25 Apr 2026, 10:00 AM – 11:00 AM IST"
+ */
+function formatSlotLabel(startISO, endISO) {
+  const s = new Date(startISO).toLocaleString('en-IN', {
+    weekday: 'long', month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+    timeZone: 'Asia/Kolkata',
+  });
+  const e = new Date(endISO).toLocaleString('en-IN', {
+    hour: '2-digit', minute: '2-digit', hour12: true,
+    timeZone: 'Asia/Kolkata',
+  });
+  return `${s} – ${e} IST`;
+}
+
+// ─── Slot generator ───────────────────────────────────────────────────────────
+
+const WORK_START   = 9;
+const WORK_END     = 17;
+const SKIP_DAYS    = [0, 6]; // Sun, Sat
+const PREFER_HOURS = [10, 11, 14, 15, 16];
+
+/**
+ * Generate N available working-hour slots starting from tomorrow (IST).
+ * All returned start/end are ISO strings with +05:30 offset.
  */
 function generateSlots(count = 3, durationMinutes = 60) {
   const slots = [];
-  const now   = new Date();
-  let   day   = new Date(now);
-  day.setDate(day.getDate() + 1); // start from tomorrow
-  day.setSeconds(0);
-  day.setMilliseconds(0);
+  const today = nowIST();
+  let cur = addDaysIST(today.year, today.month, today.day, 1);
+  let maxIterations = 30;
 
-  const WORK_START = 9;  // 9 AM
-  const WORK_END   = 17; // 5 PM
-  const SKIP_DAYS  = [0, 6]; // Sun, Sat
+  while (slots.length < count && maxIterations-- > 0) {
+    const dow = dayOfWeekIST(cur.year, cur.month, cur.day);
 
-  while (slots.length < count) {
-    // Skip weekends
-    if (SKIP_DAYS.includes(day.getDay())) {
-      day.setDate(day.getDate() + 1);
-      day.setHours(WORK_START, 0, 0, 0);
+    if (SKIP_DAYS.includes(dow)) {
+      cur = addDaysIST(cur.year, cur.month, cur.day, 1);
       continue;
     }
 
-    // Offer slots at 10:00, 14:00, 16:00
-    const preferredHours = [10, 14, 16];
-    for (const h of preferredHours) {
+    for (const h of PREFER_HOURS) {
       if (slots.length >= count) break;
-      const slot = new Date(day);
-      slot.setHours(h, 0, 0, 0);
-      const end = new Date(slot.getTime() + durationMinutes * 60 * 1000);
-      slots.push({
-        start: slot.toISOString(),
-        end:   end.toISOString(),
-        label: formatSlot(slot, end),
-      });
+      const totalEndMins = h * 60 + durationMinutes;
+      const endH = Math.floor(totalEndMins / 60);
+      const endM = totalEndMins % 60;
+      if (endH > WORK_END) continue;
+
+      const startISO = buildISTString(cur.year, cur.month, cur.day, h, 0);
+      const endISO   = buildISTString(cur.year, cur.month, cur.day, endH, endM);
+      slots.push({ start: startISO, end: endISO, label: formatSlotLabel(startISO, endISO) });
     }
-    day.setDate(day.getDate() + 1);
-    day.setHours(WORK_START, 0, 0, 0);
+
+    cur = addDaysIST(cur.year, cur.month, cur.day, 1);
   }
 
   return slots.slice(0, count);
 }
 
-function formatSlot(start, end) {
-  const opts = { weekday: 'long', month: 'short', day: 'numeric',
-                 hour: '2-digit', minute: '2-digit', hour12: true };
-  const s = start.toLocaleString('en-US', opts);
-  const e = end.toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-  return `${s} – ${e}`;
-}
-
-// ─── Meeting intent extractor ─────────────────────────────────────────────────
+// ─── Text helpers ─────────────────────────────────────────────────────────────
 
 function norm(t) { return (t || '').toLowerCase(); }
 function has(t, ...words) { const n = norm(t); return words.some((w) => n.includes(w)); }
 
+// ─── Date / time parsers ──────────────────────────────────────────────────────
+
 /**
- * Extract meeting details from email text using pattern matching.
+ * Parse time string → { hours (0-23 IST), mins }
+ * Supports: "5pm", "5 pm", "17:00", "10:30am", "3 PM"
  */
-function extractMeetingDetails(email) {
-  const combined = `${email.subject || ''} ${email.body || ''}`;
-  const n = norm(combined);
+function parseTimeStr(t) {
+  if (!t) return null;
+  const clean = t.trim();
 
-  // Is this actually a meeting request?
-  const isMeetingRequest =
-    has(combined, 'meeting', 'schedule', 'call', 'sync', 'catch up',
-                  'availability', 'available', 'calendar', 'zoom',
-                  'teams', 'google meet', 'appointment', 'book');
-
-  if (!isMeetingRequest) {
-    return { hasMeetingRequest: false };
+  // 24-hour: "17:00", "09:30"
+  const h24 = clean.match(/^(\d{1,2}):(\d{2})$/);
+  if (h24) {
+    const hours = parseInt(h24[1]);
+    const mins  = parseInt(h24[2]);
+    if (hours >= 0 && hours <= 23 && mins >= 0 && mins <= 59) return { hours, mins };
   }
 
-  // Duration hint
-  let durationMinutes = 60;
-  if (has(combined, '30 min', '30-min', 'half hour', 'quick call', 'brief')) {
-    durationMinutes = 30;
-  } else if (has(combined, '2 hour', '2-hour', 'two hour')) {
-    durationMinutes = 120;
-  }
-
-  // Platform hint
-  let platform = 'video call';
-  if (has(combined, 'zoom'))                    platform = 'Zoom';
-  else if (has(combined, 'teams'))              platform = 'Microsoft Teams';
-  else if (has(combined, 'meet', 'google meet')) platform = 'Google Meet';
-  else if (has(combined, 'phone', 'call me'))   platform = 'phone call';
-  else if (has(combined, 'in person', 'office', 'come by')) platform = 'in-person meeting';
-
-  // Proposed time — extract specific dates, day names, and times
-  const proposedTimes = [];
-  let exactDate = null;
-  let exactTime = null; // { hours, mins }
-
-  // ── Helper: parse time string like "6pm", "10:30am" → { hours, mins } ──
-  function parseTimeStr(t) {
-    if (!t) return null;
-    const clean = t.trim().replace(/(\d)([ap]m)/i, '$1 $2').toUpperCase();
-    const match = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/);
-    if (!match) return null;
-    let hours = parseInt(match[1]);
-    const mins = parseInt(match[2] || '0');
-    const ampm = match[3];
+  // 12-hour: "6pm", "10:30am", "3 PM", "6 pm"
+  const h12 = clean.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (h12) {
+    let hours  = parseInt(h12[1]);
+    const mins = parseInt(h12[2] || '0');
+    const ampm = h12[3].toUpperCase();
     if (ampm === 'PM' && hours < 12) hours += 12;
     if (ampm === 'AM' && hours === 12) hours = 0;
     return { hours, mins };
   }
 
-  // ── Helper: parse DD/MM/YYYY or DD-MM-YYYY correctly ──
-  function parseDMY(str) {
-    const m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-    if (!m) return null;
-    const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
-    return isNaN(d.getTime()) ? null : d;
-  }
+  return null;
+}
 
-  // ── Helper: parse "today" / "tomorrow" relative dates ──
-  function parseRelative(word) {
-    const now = new Date();
-    if (/today/i.test(word)) return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (/tomorrow/i.test(word)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-    return null;
-  }
+/**
+ * Parse DD/MM/YYYY or DD-MM-YYYY → { year, month, day }
+ */
+function parseDMY(str) {
+  const m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (!m) return null;
+  const day   = parseInt(m[1]);
+  const month = parseInt(m[2]);
+  const year  = parseInt(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
+}
 
-  // 1. Try DD/MM/YYYY or DD-MM-YYYY (most common in India)
-  const dmyMatch = combined.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b/);
+/**
+ * Parse "today" / "tomorrow" → { year, month, day } in IST
+ */
+function parseRelative(word) {
+  const today = nowIST();
+  if (/today/i.test(word))    return { year: today.year, month: today.month, day: today.day };
+  if (/tomorrow/i.test(word)) return addDaysIST(today.year, today.month, today.day, 1);
+  return null;
+}
+
+/**
+ * Parse day name ("Friday") → nearest future { year, month, day } in IST
+ */
+function parseDayName(word) {
+  const days = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const target = days.indexOf(word.toLowerCase());
+  if (target === -1) return null;
+
+  const today = nowIST();
+  let cur = addDaysIST(today.year, today.month, today.day, 1);
+
+  for (let i = 0; i < 8; i++) {
+    if (dayOfWeekIST(cur.year, cur.month, cur.day) === target) return cur;
+    cur = addDaysIST(cur.year, cur.month, cur.day, 1);
+  }
+  return null;
+}
+
+/**
+ * Parse "10 April 2026" or "April 10, 2026" → { year, month, day }
+ */
+function parseWrittenDate(str) {
+  const monthMap = {
+    jan:1, feb:2, mar:3, apr:4, may:5, jun:6,
+    jul:7, aug:8, sep:9, oct:10, nov:11, dec:12,
+  };
+  const m1 = str.match(/\b(\d{1,2})\s+([a-z]+)\s+(\d{4})\b/i);
+  if (m1) {
+    const day   = parseInt(m1[1]);
+    const month = monthMap[m1[2].slice(0,3).toLowerCase()];
+    const year  = parseInt(m1[3]);
+    if (month && day >= 1 && day <= 31) return { year, month, day };
+  }
+  const m2 = str.match(/\b([a-z]+)\s+(\d{1,2})[,\s]+(\d{4})\b/i);
+  if (m2) {
+    const month = monthMap[m2[1].slice(0,3).toLowerCase()];
+    const day   = parseInt(m2[2]);
+    const year  = parseInt(m2[3]);
+    if (month && day >= 1 && day <= 31) return { year, month, day };
+  }
+  return null;
+}
+
+// ─── Meeting intent extractor ─────────────────────────────────────────────────
+
+/**
+ * Extract all meeting details from an email.
+ * exactDate → { year, month, day }   (IST — no Date object, no timezone confusion)
+ * exactTime → { hours (0-23), mins } (IST hours directly from user text)
+ */
+function extractMeetingDetails(email) {
+  const combined = `${email.subject || ''} ${email.body || ''}`;
+
+  const isMeetingRequest = has(combined,
+    'meeting', 'schedule', 'call', 'sync', 'catch up',
+    'availability', 'available', 'calendar', 'zoom',
+    'teams', 'google meet', 'appointment', 'book', 'discuss'
+  );
+  if (!isMeetingRequest) return { hasMeetingRequest: false };
+
+  // Duration
+  let durationMinutes = 60;
+  if (has(combined, '30 min', '30-min', 'half hour', 'quick call', 'brief')) durationMinutes = 30;
+  else if (has(combined, '2 hour', '2-hour', 'two hour')) durationMinutes = 120;
+
+  // Platform
+  let platform = 'video call';
+  if (has(combined, 'zoom'))                      platform = 'Zoom';
+  else if (has(combined, 'teams'))                platform = 'Microsoft Teams';
+  else if (has(combined, 'google meet','gmeet'))  platform = 'Google Meet';
+  else if (has(combined, 'phone', 'call me'))     platform = 'phone call';
+  else if (has(combined, 'in person', 'office'))  platform = 'in-person meeting';
+
+  // Purpose
+  let purpose = 'a meeting';
+  if (has(combined, 'project'))        purpose = 'a project discussion';
+  else if (has(combined, 'interview')) purpose = 'an interview';
+  else if (has(combined, 'review'))    purpose = 'a review session';
+  else if (has(combined, 'onboard'))   purpose = 'an onboarding session';
+  else if (has(combined, 'demo'))      purpose = 'a product demo';
+  else if (has(combined, 'discuss'))   purpose = 'a discussion';
+
+  let exactDate = null;
+  let exactTime = null;
+  const proposedTimes = [];
+
+  // 1. DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = combined.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
   if (dmyMatch) {
     const d = parseDMY(dmyMatch[0]);
     if (d) { exactDate = d; proposedTimes.push(dmyMatch[0]); }
   }
 
-  // 2. Try "10 april 2026" or "april 10 2026"
+  // 2. Written month: "25 April 2026"
   if (!exactDate) {
-    const monthNames = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
-    const patterns = [
-      new RegExp(`\\b(\\d{1,2})\\s+(${monthNames})\\s+(\\d{4})\\b`, 'gi'),
-      new RegExp(`\\b(${monthNames})\\s+(\\d{1,2})[,\\s]+(\\d{4})\\b`, 'gi'),
-    ];
-    for (const re of patterns) {
-      const m = combined.match(re);
-      if (m && m[0]) {
-        const d = new Date(m[0]);
-        if (!isNaN(d.getTime())) {
-          exactDate = d;
-          proposedTimes.push(m[0].trim());
-          break;
-        }
+    const mn = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+    for (const re of [
+      new RegExp(`\\b(\\d{1,2})\\s+(${mn})\\s+(\\d{4})\\b`, 'gi'),
+      new RegExp(`\\b(${mn})\\s+(\\d{1,2})[,\\s]+(\\d{4})\\b`, 'gi'),
+    ]) {
+      const m = re.exec(combined);
+      if (m) {
+        const d = parseWrittenDate(m[0]);
+        if (d) { exactDate = d; proposedTimes.push(m[0].trim()); break; }
       }
     }
   }
 
-  // 3. Try relative: "today", "tomorrow"
+  // 3. Relative: today / tomorrow
   if (!exactDate) {
-    const relMatch = combined.match(/\b(today|tomorrow)\b/i);
-    if (relMatch) {
-      exactDate = parseRelative(relMatch[0]);
-      if (exactDate) proposedTimes.push(relMatch[0]);
+    const rel = combined.match(/\b(today|tomorrow)\b/i);
+    if (rel) {
+      const d = parseRelative(rel[0]);
+      if (d) { exactDate = d; proposedTimes.push(rel[0]); }
     }
   }
 
-  // 4. Day names (Friday, Monday etc.) — only if no exact date
+  // 4. Day names
   if (!exactDate) {
-    const dayMatch = combined.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi);
-    if (dayMatch) proposedTimes.push(...dayMatch.map((m) => m.trim()));
+    const dm = combined.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi);
+    if (dm) {
+      const d = parseDayName(dm[0]);
+      if (d) exactDate = d;
+      proposedTimes.push(...dm.map((x) => x.trim()));
+    }
   }
 
-  // 5. Extract time — "6pm", "10:30am", "3 PM"
-  const timeMatch = combined.match(/\b(\d{1,2}(?::\d{2})?\s*[ap]m)\b/gi);
-  if (timeMatch) {
-    proposedTimes.push(...timeMatch.map((m) => m.trim()));
-    exactTime = parseTimeStr(timeMatch[0]); // use first time found
+  // 5. Time — 24h first, then 12h
+  const t24 = combined.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+  if (t24) {
+    const parsed = parseTimeStr(t24[0]);
+    if (parsed) { exactTime = parsed; proposedTimes.push(t24[0]); }
   }
-
-  // Purpose hint
-  let purpose = 'a meeting';
-  if (has(combined, 'project'))   purpose = 'a project discussion';
-  else if (has(combined, 'interview')) purpose = 'an interview';
-  else if (has(combined, 'review'))    purpose = 'a review session';
-  else if (has(combined, 'onboard'))   purpose = 'an onboarding session';
-  else if (has(combined, 'demo'))      purpose = 'a product demo';
+  if (!exactTime) {
+    const t12 = combined.match(/\b(\d{1,2}(?::\d{2})?\s*[ap]m)\b/gi);
+    if (t12) {
+      const parsed = parseTimeStr(t12[0].trim());
+      if (parsed) { exactTime = parsed; proposedTimes.push(t12[0].trim()); }
+    }
+  }
 
   return {
     hasMeetingRequest: true,
@@ -202,69 +360,80 @@ function extractMeetingDetails(email) {
   };
 }
 
-// ─── Reply builder ────────────────────────────────────────────────────────────
+// ─── Reply builders ───────────────────────────────────────────────────────────
 
-/**
- * Build a meeting-reply body with available time slots embedded.
- */
 function buildMeetingReply(details, senderFirstName) {
   const name = senderFirstName || 'there';
 
-  // Case 1: Exact date found (e.g. "13/4/2026", "Friday 10 April 2026")
   if (details.exactDate) {
-    const dateLabel = details.exactDate.toLocaleDateString('en-IN', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-      timeZone: 'Asia/Kolkata',
-    });
-    let timeLabel = '';
-    if (details.exactTime) {
-      const h = details.exactTime.hours;
-      const m = details.exactTime.mins;
-      const ampm = h >= 12 ? 'PM' : 'AM';
-      const h12  = h % 12 || 12;
-      timeLabel  = ` at ${h12}:${String(m).padStart(2,'0')} ${ampm}`;
-    }
+    const { year, month, day } = details.exactDate;
+    const h = details.exactTime ? details.exactTime.hours : 10;
+    const m = details.exactTime ? details.exactTime.mins  : 0;
+    const label = formatISTDisplay(year, month, day, h, m);
     return (
       `Hi ${name},\n\n` +
       `Thank you for reaching out! I would be happy to connect for ${details.purpose} via ${details.platform}.\n\n` +
-      `${dateLabel}${timeLabel} works perfectly for me. I will send a calendar invite shortly.\n\n` +
-      `Please let me know if you need to adjust anything.\n\n` +
-      `Best regards,`
+      `${label} works perfectly for me. I will send a calendar invite shortly.\n\n` +
+      `Please let me know if you need to adjust anything.\n\nBest regards,`
     );
   }
 
-  // Case 2: Day name or relative time proposed (e.g. "Friday", "tomorrow")
   if (details.proposedTimes.length > 0) {
-    const dayHint  = details.proposedTimes.find((t) => !/am|pm/i.test(t));
-    const timeHint = details.proposedTimes.find((t) => /am|pm/i.test(t));
+    const dayHint  = details.proposedTimes.find((t) => !/am|pm|\d{2}:\d{2}/i.test(t));
+    const timeHint = details.proposedTimes.find((t) => /am|pm|\d{2}:\d{2}/i.test(t));
     const when     = [dayHint, timeHint].filter(Boolean).join(' at ');
     return (
       `Hi ${name},\n\n` +
       `Thank you for reaching out! I would be happy to connect for ${details.purpose} via ${details.platform}.\n\n` +
-      `${when} works for me. I will send a calendar invite shortly.\n\n` +
-      `Please let me know if you need to adjust anything.\n\n` +
-      `Best regards,`
+      `${when} works for me (IST). I will send a calendar invite shortly.\n\n` +
+      `Please let me know if you need to adjust anything.\n\nBest regards,`
     );
   }
 
-  // Case 3: No time proposed — offer 3 slots
   const slots    = generateSlots(3, details.durationMinutes);
   const slotList = slots.map((s, i) => `  ${i + 1}. ${s.label}`).join('\n');
   return (
     `Hi ${name},\n\n` +
     `Thank you for reaching out! I would love to schedule ${details.purpose} via ${details.platform}.\n\n` +
-    `Here are a few slots that work for me:\n\n` +
-    `${slotList}\n\n` +
-    `Please pick the one that suits you best and I will send a calendar invite right away.\n\n` +
-    `Best regards,`
+    `Here are a few slots that work for me (all times IST):\n\n${slotList}\n\n` +
+    `Please pick the one that suits you best and I will send a calendar invite right away.\n\nBest regards,`
   );
 }
 
-// ─── Conflict checker ────────────────────────────────────────────────────────
+function buildBusyReply(details, senderFirstName, conflictEvent, nextSlots) {
+  const name = senderFirstName || 'there';
+  let requestedLabel = details.proposedTimes[0] || 'that time';
+  if (details.exactDate) {
+    const { year, month, day } = details.exactDate;
+    const h = details.exactTime ? details.exactTime.hours : 10;
+    const m = details.exactTime ? details.exactTime.mins  : 0;
+    requestedLabel = formatISTDisplay(year, month, day, h, m);
+  }
 
-/**
- * Get Google Calendar auth client — shared helper.
- */
+  const apology =
+    `Hi ${name},\n\n` +
+    `Thank you for reaching out! I apologise, but I already have a commitment at ${requestedLabel} ` +
+    `and I am unable to meet at that time.\n\n`;
+
+  if (nextSlots && nextSlots.length > 0) {
+    const slotList = nextSlots.map((s, i) => `  ${i + 1}. ${s.label}`).join('\n');
+    return (
+      apology +
+      `Here are my next available slots (all times IST):\n\n${slotList}\n\n` +
+      `Please let me know which one works best and I will send a calendar invite right away.\n\n` +
+      `Sorry for any inconvenience — looking forward to connecting!\n\nBest regards,`
+    );
+  }
+
+  return (
+    apology +
+    `Could you please suggest another date and time (IST) that works for you? ` +
+    `I will do my best to accommodate.\n\nSorry for any inconvenience!\n\nBest regards,`
+  );
+}
+
+// ─── Google Calendar client ───────────────────────────────────────────────────
+
 function getCalendarClient() {
   const { google } = require('googleapis');
   const oauth2 = new google.auth.OAuth2(
@@ -276,255 +445,170 @@ function getCalendarClient() {
   return google.calendar({ version: 'v3', auth: oauth2 });
 }
 
-/**
- * checkCalendarConflict — checks if there is already an event at the requested time.
- *
- * @param {string} startISO — ISO start datetime
- * @param {string} endISO   — ISO end datetime
- * @returns {{ hasConflict: boolean, conflictEvent: object|null, nextSlots: Array }}
- */
+// ─── Calendar conflict checker ────────────────────────────────────────────────
+
 async function checkCalendarConflict(startISO, endISO) {
   if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_REFRESH_TOKEN) {
     return { hasConflict: false, conflictEvent: null, nextSlots: [] };
   }
-
   try {
     const calendar = getCalendarClient();
-
-    // Query calendar for events in the requested window
     const res = await calendar.events.list({
-      calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
-      timeMin: startISO,
-      timeMax: endISO,
+      calendarId:   process.env.GOOGLE_CALENDAR_ID || 'primary',
+      timeMin:      startISO,
+      timeMax:      endISO,
       singleEvents: true,
-      orderBy: 'startTime',
+      orderBy:      'startTime',
     });
-
-    const events = res.data.items || [];
-    // Filter out declined events and all-day events
+    const events    = res.data.items || [];
     const conflicts = events.filter((e) => {
-      if (!e.start?.dateTime) return false; // skip all-day events
+      if (!e.start?.dateTime) return false;
       const selfStatus = (e.attendees || []).find((a) => a.self)?.responseStatus;
       return selfStatus !== 'declined';
     });
-
-    if (conflicts.length === 0) {
-      return { hasConflict: false, conflictEvent: null, nextSlots: [] };
-    }
-
-    // Find next 3 free slots after the conflict
+    if (conflicts.length === 0) return { hasConflict: false, conflictEvent: null, nextSlots: [] };
     const nextSlots = await findNextFreeSlots(calendar, new Date(endISO), 3, 60);
-
-    logger.info(`Calendar conflict found: ${conflicts[0].summary} at ${startISO}`);
-    return {
-      hasConflict: true,
-      conflictEvent: conflicts[0],
-      nextSlots,
-    };
+    logger.info(`Calendar conflict: ${conflicts[0].summary} at ${startISO}`);
+    return { hasConflict: true, conflictEvent: conflicts[0], nextSlots };
   } catch (err) {
     logger.warn('Calendar conflict check failed', { error: err.message });
     return { hasConflict: false, conflictEvent: null, nextSlots: [] };
   }
 }
 
-/**
- * findNextFreeSlots — find N free working-hours slots after a given time.
- */
-async function findNextFreeSlots(calendar, after, count = 3, durationMinutes = 60) {
-  const slots = [];
-  let cursor  = new Date(after);
-  cursor.setMinutes(0, 0, 0);
+// ─── Find next free slots ─────────────────────────────────────────────────────
 
-  const WORK_START = 9;
-  const WORK_END   = 17;
-  const SKIP_DAYS  = [0, 6];
-  const attempts   = 0;
-  let   maxDays    = 7; // search up to 7 days ahead
+async function findNextFreeSlots(calendar, afterUTC, count = 3, durationMinutes = 60) {
+  const slots    = [];
+  const afterIST = utcToIST(afterUTC);
+  let cur = { year: afterIST.year, month: afterIST.month, day: afterIST.day };
+  if (afterIST.hours >= WORK_END) cur = addDaysIST(cur.year, cur.month, cur.day, 1);
 
-  while (slots.length < count && maxDays > 0) {
-    // Skip weekends
-    if (SKIP_DAYS.includes(cursor.getDay())) {
-      cursor.setDate(cursor.getDate() + 1);
-      cursor.setHours(WORK_START, 0, 0, 0);
-      maxDays--;
-      continue;
-    }
+  let maxDays = 14;
 
-    // Try hours 9, 10, 11, 14, 15, 16
-    const tryHours = [9, 10, 11, 14, 15, 16];
-    for (const h of tryHours) {
+  while (slots.length < count && maxDays-- > 0) {
+    const dow = dayOfWeekIST(cur.year, cur.month, cur.day);
+    if (SKIP_DAYS.includes(dow)) { cur = addDaysIST(cur.year, cur.month, cur.day, 1); continue; }
+
+    for (const h of PREFER_HOURS) {
       if (slots.length >= count) break;
-      if (h < cursor.getHours() && cursor.toDateString() === new Date().toDateString()) continue;
+      const totalEndMins = h * 60 + durationMinutes;
+      const endH = Math.floor(totalEndMins / 60);
+      const endM = totalEndMins % 60;
+      if (endH > WORK_END) continue;
 
-      const start = new Date(cursor);
-      start.setHours(h, 0, 0, 0);
-      if (start <= new Date()) continue; // skip past times
+      // Skip hours before afterIST on the same IST day
+      if (cur.year === afterIST.year && cur.month === afterIST.month &&
+          cur.day === afterIST.day && h <= afterIST.hours) continue;
 
-      const end = new Date(start.getTime() + durationMinutes * 60000);
+      const startISO = buildISTString(cur.year, cur.month, cur.day, h, 0);
+      const endISO   = buildISTString(cur.year, cur.month, cur.day, endH, endM);
+      if (new Date(startISO) <= new Date()) continue;
 
       try {
-        const res = await calendar.events.list({
+        const res  = await calendar.events.list({
           calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
-          timeMin: start.toISOString(),
-          timeMax: end.toISOString(),
-          singleEvents: true,
+          timeMin: startISO, timeMax: endISO, singleEvents: true,
         });
         const busy = (res.data.items || []).filter((e) => e.start?.dateTime);
-        if (busy.length === 0) {
-          slots.push({
-            start: start.toISOString(),
-            end:   end.toISOString(),
-            label: formatSlot(start, end),
-          });
-        }
+        if (busy.length === 0) slots.push({ start: startISO, end: endISO, label: formatSlotLabel(startISO, endISO) });
       } catch {
-        // If check fails, include the slot anyway
-        slots.push({
-          start: start.toISOString(),
-          end:   end.toISOString(),
-          label: formatSlot(start, end),
-        });
+        slots.push({ start: startISO, end: endISO, label: formatSlotLabel(startISO, endISO) });
       }
     }
-
-    cursor.setDate(cursor.getDate() + 1);
-    cursor.setHours(WORK_START, 0, 0, 0);
-    maxDays--;
+    cur = addDaysIST(cur.year, cur.month, cur.day, 1);
   }
-
   return slots;
 }
 
-/**
- * buildBusyReply — reply telling sender the slot is taken + offer next free slots.
- */
-function buildBusyReply(details, senderFirstName, conflictEvent, nextSlots) {
-  const name        = senderFirstName || 'there';
-  const requestedAt = details.exactDate
-    ? details.exactDate.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' })
-    : (details.proposedTimes[0] || 'that time');
-
-  const apology =
-    `Hi ${name},
-
-` +
-    `Thank you for reaching out! I apologise, but I already have another commitment scheduled on ${requestedAt} ` +
-    `and I am unable to meet at that time.
-
-`;
-
-  if (nextSlots.length > 0) {
-    const slotList = nextSlots.map((s, i) => `  ${i + 1}. ${s.label}`).join('\n');
-    return (
-      apology +
-      `Here are my next available slots:
-
-` +
-      `${slotList}
-
-` +
-      `Please let me know which one works best for you and I will send a calendar invite right away.
-
-` +
-      `Sorry for any inconvenience and looking forward to connecting!
-
-` +
-      `Best regards,`
-    );
-  }
-
-  return (
-    apology +
-    `Could you please suggest another date or time that works for you? ` +
-    `I will do my best to accommodate.
-
-` +
-    `Sorry for any inconvenience!
-
-` +
-    `Best regards,`
-  );
-}
-
-// ─── Google Calendar integration (optional) ───────────────────────────────────
+// ─── Calendar event creator ───────────────────────────────────────────────────
 
 /**
- * Create a Google Calendar event if credentials are configured.
- * Silently skips if not configured — meeting scheduling still works
- * via email reply even without Calendar API.
+ * THE ROOT FIX:
+ * We build the ISO string directly from the parsed IST fields using buildISTString().
+ * We NEVER pass the date through a JavaScript Date object for hour/minute extraction
+ * because the server runs in UTC and .getHours() would return UTC hours, not IST hours.
+ * A 5pm IST meeting = 11:30am UTC → server's .getHours() returns 11 → event saved at 11am IST.
+ * buildISTString() bypasses this entirely by constructing "2026-04-25T17:00:00+05:30" directly.
  */
 async function createCalendarEvent(details, attendeeEmail, slot) {
   if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_REFRESH_TOKEN) {
     logger.warn('Google Calendar skipped — OAuth credentials not configured');
     return null;
   }
-
   try {
-    const { google } = require('googleapis');
-    const oauth2 = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET,
-      process.env.GMAIL_REDIRECT_URI,
-    );
-    oauth2.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+    const calendar = getCalendarClient();
 
-    const calendar = google.calendar({ version: 'v3', auth: oauth2 });
-    // Use the sender's requested date/time if available, else use generated slot
-    let startTime = slot.start;
-    let endTime   = slot.end;
+    let startISO, endISO;
 
     if (details.exactDate) {
-      const d      = new Date(details.exactDate);
-      const pad    = (n) => String(n).padStart(2, '0');
+      const { year, month, day } = details.exactDate;
+      const istH = details.exactTime ? details.exactTime.hours : 10; // default 10am IST
+      const istM = details.exactTime ? details.exactTime.mins  : 0;
 
-      // Use exactTime hours/mins DIRECTLY — never pass through d.getHours()
-      // because the server may be in UTC and corrupt the value.
-      // We always build the IST string manually from the user's stated time.
-      const istHours = details.exactTime ? details.exactTime.hours : 10;
-      const istMins  = details.exactTime ? details.exactTime.mins  : 0;
+      // IST end time arithmetic (no Date object needed)
+      const totalEndMins = istH * 60 + istM + details.durationMinutes;
+      const endH = Math.floor(totalEndMins / 60) % 24;
+      const endM = totalEndMins % 60;
 
-      const year  = d.getFullYear();
-      const month = pad(d.getMonth() + 1);
-      const day   = pad(d.getDate());
+      // Build +05:30 ISO strings directly — this is the fix
+      startISO = buildISTString(year, month, day, istH, istM);
+      endISO   = buildISTString(year, month, day, endH, endM);
 
-      // End time — add duration to the IST hours directly
-      const totalMins    = istHours * 60 + istMins + details.durationMinutes;
-      const endHours     = Math.floor(totalMins / 60) % 24;
-      const endMins      = totalMins % 60;
+      logger.info(`Calendar event IST: ${startISO} → ${endISO}`);
 
-      // Build ISO with explicit +05:30 — Google Calendar honours this offset
-      startTime = `${year}-${month}-${day}T${pad(istHours)}:${pad(istMins)}:00+05:30`;
-      endTime   = `${year}-${month}-${day}T${pad(endHours)}:${pad(endMins)}:00+05:30`;
-
-      logger.info(`Calendar event IST: ${startTime} → ${endTime}`);
+    } else if (slot) {
+      startISO = slot.start;
+      endISO   = slot.end;
+    } else {
+      logger.warn('createCalendarEvent: no exactDate or slot provided');
+      return null;
     }
 
     const event = {
-      summary: details.purpose,
-      description: `Scheduled by AI Email Agent`,
-      start: { dateTime: startTime, timeZone: 'Asia/Kolkata' },
-      end:   { dateTime: endTime,   timeZone: 'Asia/Kolkata' },
-      // No attendees — do NOT send calendar invitation to sender
-      // The AI reply email already confirms the meeting
+      summary:     details.purpose || 'Meeting',
+      description: 'Scheduled by AI Email Agent',
+      start: { dateTime: startISO, timeZone: 'Asia/Kolkata' },
+      end:   { dateTime: endISO,   timeZone: 'Asia/Kolkata' },
       conferenceData: details.platform === 'Google Meet' ? {
         createRequest: { requestId: `ai-agent-${Date.now()}` },
       } : undefined,
     };
 
     const response = await calendar.events.insert({
-      calendarId: process.env.GOOGLE_CALENDAR_ID || 'primary',
-      resource: event,
+      calendarId:            process.env.GOOGLE_CALENDAR_ID || 'primary',
+      resource:              event,
       conferenceDataVersion: details.platform === 'Google Meet' ? 1 : 0,
-      sendUpdates: 'none',      // never send Google Calendar invites
-      sendNotifications: false, // never send notifications to anyone
+      sendUpdates:           'none',
+      sendNotifications:     false,
     });
 
     logger.info(`Calendar event created: ${response.data.htmlLink}`);
     return response.data;
+
   } catch (err) {
     logger.error('Calendar event creation failed', { error: err.message });
     return null;
   }
 }
 
-module.exports = { extractMeetingDetails, generateSlots, buildMeetingReply, buildBusyReply, checkCalendarConflict, createCalendarEvent };
+// ─── Exports ──────────────────────────────────────────────────────────────────
+
+module.exports = {
+  extractMeetingDetails,
+  generateSlots,
+  buildMeetingReply,
+  buildBusyReply,
+  checkCalendarConflict,
+  findNextFreeSlots,
+  createCalendarEvent,
+  // Exported for testing
+  parseTimeStr,
+  parseDMY,
+  parseRelative,
+  parseDayName,
+  buildISTString,
+  nowIST,
+  utcToIST,
+  buildISTString,
+};
