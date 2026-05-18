@@ -37,42 +37,58 @@ class ApprovalService {
   // Get all pending approvals with email details
   // ============================================================
   async getPendingApprovals(limit = 50, offset = 0) {
-    const result = await query(
-      `SELECT
-         r.id as reply_id,
-         r.generated_reply,
-         r.final_reply,
-         r.approval_status,
-         r.created_at as queued_at,
-         e.id as email_id,
-         e.sender_email,
-         e.sender_name,
-         e.subject,
-         e.body,
-         e.provider,
-         e.thread_id,
-         e.message_id,
-         e.received_at,
-         a.intent,
-         a.tone,
-         a.priority,
-         a.confidence,
-         a.reasoning,
-         a.decision
-       FROM email_replies r
-       JOIN emails e ON r.email_id = e.id
-       LEFT JOIN email_analyses a ON r.analysis_id = a.id
-       WHERE r.approval_status = 'pending'
-       ORDER BY
-         CASE a.priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-         r.created_at ASC
-       LIMIT $1 OFFSET $2`,
-      [limit, offset]
-    );
+    // FIX 1: Use LEFT JOIN on emails (not JOIN) so rows appear even if
+    // email record is somehow missing. Use LEFT JOIN on email_analyses
+    // so rows appear even if analysis insert failed.
+    // FIX 2: Run a separate COUNT query for accurate total — result.rows.length
+    // is capped by LIMIT so it always returned ≤ limit, never the real total.
+    const [result, countResult] = await Promise.all([
+      query(
+        `SELECT
+           r.id          AS reply_id,
+           r.generated_reply,
+           r.final_reply,
+           r.approval_status,
+           r.created_at  AS queued_at,
+           e.id          AS email_id,
+           e.sender_email,
+           e.sender_name,
+           e.subject,
+           e.body,
+           e.provider,
+           e.thread_id,
+           e.message_id,
+           e.received_at,
+           COALESCE(a.intent,   'unknown') AS intent,
+           COALESCE(a.tone,     'unknown') AS tone,
+           COALESCE(a.priority, 'medium')  AS priority,
+           a.confidence,
+           a.reasoning,
+           a.decision
+         FROM email_replies r
+         LEFT JOIN emails e         ON r.email_id   = e.id
+         LEFT JOIN email_analyses a ON r.analysis_id = a.id
+         WHERE r.approval_status = 'pending'
+         ORDER BY
+           CASE COALESCE(a.priority,'medium')
+             WHEN 'high'   THEN 1
+             WHEN 'medium' THEN 2
+             ELSE 3
+           END,
+           r.created_at ASC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset]
+      ),
+      query(
+        `SELECT COUNT(*) AS total
+           FROM email_replies
+           WHERE approval_status = 'pending'`
+      ),
+    ]);
 
     return {
       items: result.rows,
-      total: result.rows.length,
+      total: parseInt(countResult.rows[0]?.total || 0),
       offset,
     };
   }

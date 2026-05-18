@@ -93,12 +93,20 @@ async function recordSender(senderEmail, senderName) {
 
 async function saveToApprovalQueue(email, analysis, replyText, replySubject, reason) {
   try {
-    // First upsert the email record
+    // FIX: guarantee replyText is always a non-empty string
+    const safeReplyText = (replyText && replyText.trim())
+      ? replyText
+      : `Hi,\n\nThank you for your email. We have received your message and will get back to you shortly.\n\nBest regards,`;
+
+    // Step 1: Upsert email record
+    // FIX: use ON CONFLICT DO UPDATE to return the id even if row already exists
     const emailResult = await query(
       `INSERT INTO emails
          (message_id, thread_id, provider, sender_email, sender_name, subject, body, status, received_at)
        VALUES ($1,$2,'gmail',$3,$4,$5,$6,'pending',$7)
-       ON CONFLICT (message_id) DO UPDATE SET status='pending'
+       ON CONFLICT (message_id) DO UPDATE
+         SET status = 'pending',
+             updated_at = NOW()
        RETURNING id`,
       [
         email.messageId, email.threadId || '',
@@ -107,29 +115,60 @@ async function saveToApprovalQueue(email, analysis, replyText, replySubject, rea
         email.receivedAt || new Date(),
       ],
     );
+
     const emailId = emailResult.rows[0]?.id;
-    if (!emailId) return;
+    if (!emailId) {
+      logger.error('saveToApprovalQueue: failed to get emailId after upsert');
+      return;
+    }
 
-    // Save analysis
-    const analysisResult = await query(
-      `INSERT INTO email_analyses
-         (email_id, intent, tone, priority, decision, confidence, reasoning, ai_model)
-       VALUES ($1,$2,$3,$4,'NEEDS_APPROVAL',$5,$6,'heuristic-fallback-v1')
-       RETURNING id`,
-      [emailId, analysis.intent, analysis.tone, analysis.priority,
-       analysis.confidence, reason],
+    // Step 2: Insert analysis
+    let analysisId = null;
+    try {
+      const analysisResult = await query(
+        `INSERT INTO email_analyses
+           (email_id, intent, tone, priority, decision, confidence, reasoning, ai_model)
+         VALUES ($1,$2,$3,$4,'NEEDS_APPROVAL',$5,$6,'heuristic-fallback-v1')
+         RETURNING id`,
+        [
+          emailId,
+          analysis.intent   || 'unknown',
+          analysis.tone     || 'neutral',
+          analysis.priority || 'medium',
+          analysis.confidence != null ? analysis.confidence : 0.5,
+          reason || 'Routed to approval queue',
+        ],
+      );
+      analysisId = analysisResult.rows[0]?.id || null;
+    } catch (analysisErr) {
+      // Analysis insert failed — log but continue, we can still queue the reply
+      logger.warn('saveToApprovalQueue: analysis insert failed', { error: analysisErr.message });
+    }
+
+    // Step 3: Check if a pending reply already exists for this email
+    // to avoid duplicate entries in the approval queue
+    const existing = await query(
+      `SELECT id FROM email_replies
+         WHERE email_id = $1 AND approval_status = 'pending'
+         LIMIT 1`,
+      [emailId],
     );
-    const analysisId = analysisResult.rows[0]?.id;
+    if (existing.rows.length > 0) {
+      logger.info(`saveToApprovalQueue: email ${emailId} already in approval queue — skipping duplicate`);
+      return;
+    }
 
-    // Save to reply queue
+    // Step 4: Insert reply into approval queue
     await query(
       `INSERT INTO email_replies
          (email_id, analysis_id, generated_reply, approval_status)
        VALUES ($1,$2,$3,'pending')`,
-      [emailId, analysisId, replyText],
+      [emailId, analysisId, safeReplyText],
     );
+
+    logger.info(`saveToApprovalQueue: email ${emailId} queued successfully | reason: ${reason}`);
   } catch (err) {
-    logger.warn('Could not save to approval queue', { error: err.message });
+    logger.error('saveToApprovalQueue: failed to save to approval queue', { error: err.message, stack: err.stack });
   }
 }
 
@@ -153,8 +192,10 @@ async function markEmailProcessed(messageId, decision) {
 
 async function wasAlreadyProcessed(messageId) {
   try {
+    // FIX: include 'pending' in the processed statuses.
+    // 'pending' means NEEDS_APPROVAL — already queued, do not re-process.
     const r = await query(
-      "SELECT 1 FROM emails WHERE message_id = $1 AND status NOT IN ('pending')",
+      "SELECT 1 FROM emails WHERE message_id = $1 AND status IN ('pending','replied','trashed','ignored','processed')",
       [messageId],
     );
     return r.rows.length > 0;
