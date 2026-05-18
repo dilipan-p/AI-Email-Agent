@@ -18,7 +18,7 @@ const { query }         = require('../config/database');
 const { fallbackAnalysis } = require('./fallbackAnalysis');
 const { generateReply } = require('./replyEngine');
 const { detectSpam }    = require('./spamDetector');
-const { extractMeetingDetails, buildMeetingReply, buildBusyReply, checkCalendarConflict, createCalendarEvent, generateSlots } = require('./meetingScheduler');
+const { extractMeetingDetails, buildMeetingReply, buildBusyReply, checkCalendarConflict, createCalendarEvent, buildISTString } = require('./meetingScheduler');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -234,21 +234,17 @@ async function processEmail(gmail, email) {
       // Determine the requested start/end time for conflict check
       let checkStart, checkEnd;
       if (meetingDetails.exactDate) {
-        const d      = new Date(meetingDetails.exactDate);
-        const pad    = (n) => String(n).padStart(2, '0');
-        const year   = d.getFullYear();
-        const month  = pad(d.getMonth() + 1);
-        const day    = pad(d.getDate());
-
-        // Use user's stated time directly — avoid server UTC corruption
-        const istHours = meetingDetails.exactTime ? meetingDetails.exactTime.hours : 10;
-        const istMins  = meetingDetails.exactTime ? meetingDetails.exactTime.mins  : 0;
+        // FIX: exactDate is { year, month, day } plain object — NOT a Date.
+        // Use buildISTString() directly to avoid UTC corruption.
+        const { year, month, day } = meetingDetails.exactDate;
+        const istHours  = meetingDetails.exactTime ? meetingDetails.exactTime.hours : 10;
+        const istMins   = meetingDetails.exactTime ? meetingDetails.exactTime.mins  : 0;
         const totalMins = istHours * 60 + istMins + meetingDetails.durationMinutes;
         const endHours  = Math.floor(totalMins / 60) % 24;
         const endMins   = totalMins % 60;
 
-        checkStart = `${year}-${month}-${day}T${pad(istHours)}:${pad(istMins)}:00+05:30`;
-        checkEnd   = `${year}-${month}-${day}T${pad(endHours)}:${pad(endMins)}:00+05:30`;
+        checkStart = buildISTString(year, month, day, istHours, istMins);
+        checkEnd   = buildISTString(year, month, day, endHours, endMins);
       }
 
       if (checkStart) {
@@ -266,8 +262,9 @@ async function processEmail(gmail, email) {
       replyText = buildMeetingReply(meetingDetails, firstName);
 
       if (analysis.confidence >= AUTO_REPLY_CONFIDENCE_MIN && contactInfo) {
-        const slots = generateSlots(1, meetingDetails.durationMinutes);
-        await createCalendarEvent(meetingDetails, email.sender, slots[0]);
+        // FIX: pass null — createCalendarEvent uses exactDate+exactTime directly via buildISTString.
+        // Passing a generated slot (e.g. 9:30am) was overwriting the user's requested time.
+        await createCalendarEvent(meetingDetails, email.sender, null);
       }
     }
   } else {
